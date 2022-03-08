@@ -44,7 +44,7 @@ def _get_parser():
     parser = ArgumentParser(description='simulate.py')
 
     opts.config_opts(parser)
-    opts.translate_opts(parser)
+    opts.inmt_opts(parser)
     return parser
 
 
