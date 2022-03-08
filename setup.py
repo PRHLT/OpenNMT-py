@@ -38,7 +38,8 @@ setup(
             "onmt_translate_dynamic=onmt.bin.translate_dynamic:main",
             "onmt_release_model=onmt.bin.release_model:main",
             "onmt_average_models=onmt.bin.average_models:main",
-            "onmt_build_vocab=onmt.bin.build_vocab:main"
+            "onmt_build_vocab=onmt.bin.build_vocab:main",
+            "onmt_simulation=onmt.bin.simulate:main",
         ],
     }
 )
