@@ -20,6 +20,7 @@ def get_prefix(hyp, ref):
 def simulate(opt):
     ArgumentParser.validate_translate_opts(opt)
     ArgumentParser.validate_simulate_opts(opt)
+    ArgumentParser.validate_inmt_opts(opt)
     logger = init_logger(opt.log_file)
 
     translator = build_translator(opt, logger=logger, report_score=True)
@@ -33,25 +34,13 @@ def simulate(opt):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n]
-        score, hyp = translator.translate(
-            src=[src],
-            src_feats=[],
-            tgt=[],
-            batch_size=opt.batch_size,
-            batch_type=opt.batch_type,
-            attn_debug=opt.attn_debug,
-            align_debug=opt.align_debug
-            )
-        while hyp != ref:
-            feedback = get_prefix(hyp, ref)
-            score, hyp = translator.translate(
+        score, hyp = translator.translate(src=[src], batch_size=1)
+
+        while hyp[0] != ref:
+            feedback = get_prefix(hyp[0], ref)
+            score, hyp = translator.prefix_based_inmt(
                 src=[src],
-                src_feats=[],
-                tgt=[feedback],
-                batch_size=opt.batch_size,
-                batch_type=opt.batch_type,
-                attn_debug=opt.attn_debug,
-                align_debug=opt.align_debug
+                prefix=[feedback]
                 )
 
 
