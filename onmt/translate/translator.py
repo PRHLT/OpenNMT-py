@@ -46,6 +46,18 @@ def build_translator(opt, report_score=True, logger=None, out_file=None):
             report_score=report_score,
             logger=logger,
         )
+    elif model_opt.model_task == ModelTask.INMT:
+        translator = INMTTranslator.from_opt(
+            model,
+            fields,
+            opt,
+            model_opt,
+            global_scorer=scorer,
+            out_file=out_file,
+            report_align=opt.report_align,
+            report_score=report_score,
+            logger=logger,
+        )
     else:
         translator = Translator.from_opt(
             model,
@@ -980,6 +992,21 @@ class Translator(Inference):
         gold_scores = gold_scores.sum(dim=0).view(-1)
 
         return gold_scores
+
+
+class INMTTranslator(Translator):
+    def translate(
+        self,
+        src,
+        src_feats={},
+        tgt=None,
+        batch_size=None,
+        batch_type="sents",
+        attn_debug=False,
+        align_debug=False,
+        phrase_table="",
+    ):
+        return None, None
 
 
 class GeneratorLM(Inference):

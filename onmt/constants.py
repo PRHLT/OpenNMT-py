@@ -30,3 +30,4 @@ class SubwordMarker(object):
 class ModelTask(object):
     LANGUAGE_MODEL = 'lm'
     SEQ2SEQ = 'seq2seq'
+    INMT = 'inmt'
