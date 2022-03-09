@@ -341,5 +341,10 @@ class ArgumentParser(cfargparse.ArgumentParser, DataOptsCheckerMixin):
     @classmethod
     def validate_simulate_opts(cls, opt):
         if not opt.tgt:
-            raise AssertionError("The reference translation is mandatory "
-                                 + "for the user simulation.")
+            raise ValueError("The reference translation is mandatory"
+                             + "for the user simulation.")
+
+    @classmethod
+    def validate_inmt_opts(cls, opt):
+        opt.batch_size = 1
+        opt.model_type = ModelTask.INMT

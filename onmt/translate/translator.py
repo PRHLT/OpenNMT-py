@@ -995,18 +995,127 @@ class Translator(Inference):
 
 
 class INMTTranslator(Translator):
-    def translate(
+    def __init__(self, *args, **kwds):
+        super().__init__(*args, **kwds)
+        self.prefix = None
+
+    def prefix_based_inmt(
         self,
         src,
+        prefix,
         src_feats={},
         tgt=None,
-        batch_size=None,
+        batch_size=1,
         batch_type="sents",
         attn_debug=False,
         align_debug=False,
         phrase_table="",
     ):
-        return None, None
+        self.prefix = prefix
+        self.translate(src, src_feats, tgt, batch_size, batch_type,
+                       attn_debug, align_debug, phrase_table,)
+
+    def _translate_batch_with_strategy(
+        self, batch, src_vocabs, decode_strategy
+    ):
+        """Translate a batch of sentences step by step using cache.
+
+        Args:
+            batch: a batch of sentences, yield by data iterator.
+            src_vocabs (list): list of torchtext.data.Vocab if can_copy.
+            decode_strategy (DecodeStrategy): A decode strategy to use for
+                generate translation step by step.
+
+        Returns:
+            results (dict): The translation results.
+        """
+        # (0) Prep the components of the search.
+        use_src_map = self.copy_attn
+        parallel_paths = decode_strategy.parallel_paths  # beam_size
+        batch_size = batch.batch_size
+
+        # (1) Run the encoder on the src.
+        src, enc_states, memory_bank, src_lengths = self._run_encoder(batch)
+        self.model.decoder.init_state(src, memory_bank, enc_states)
+
+        gold_score = self._gold_score(
+            batch,
+            memory_bank,
+            src_lengths,
+            src_vocabs,
+            use_src_map,
+            enc_states,
+            batch_size,
+            src,
+        )
+
+        # (2) prep decode_strategy. Possibly repeat src objects.
+        src_map = batch.src_map if use_src_map else None
+        target_prefix = self.prefix
+        (
+            fn_map_state,
+            memory_bank,
+            memory_lengths,
+            src_map,
+        ) = decode_strategy.initialize(
+            memory_bank, src_lengths, src_map, target_prefix=target_prefix
+        )
+        if fn_map_state is not None:
+            self.model.decoder.map_state(fn_map_state)
+
+        # (3) Begin decoding step by step:
+        for step in range(decode_strategy.max_length):
+            decoder_input = decode_strategy.current_predictions.view(1, -1, 1)
+
+            log_probs, attn = self._decode_and_generate(
+                decoder_input,
+                memory_bank,
+                batch,
+                src_vocabs,
+                memory_lengths=memory_lengths,
+                src_map=src_map,
+                step=step,
+                batch_offset=decode_strategy.batch_offset,
+            )
+
+            decode_strategy.advance(log_probs, attn)
+            any_finished = decode_strategy.is_finished.any()
+            if any_finished:
+                decode_strategy.update_finished()
+                if decode_strategy.done:
+                    break
+
+            select_indices = decode_strategy.select_indices
+
+            if any_finished:
+                # Reorder states.
+                if isinstance(memory_bank, tuple):
+                    memory_bank = tuple(
+                        x.index_select(1, select_indices) for x in memory_bank
+                    )
+                else:
+                    memory_bank = memory_bank.index_select(1, select_indices)
+
+                memory_lengths = memory_lengths.index_select(0, select_indices)
+
+                if src_map is not None:
+                    src_map = src_map.index_select(1, select_indices)
+
+            if parallel_paths > 1 or any_finished:
+                self.model.decoder.map_state(
+                    lambda state, dim: state.index_select(dim, select_indices)
+                )
+
+        return self.report_results(
+            gold_score,
+            batch,
+            batch_size,
+            src,
+            src_lengths,
+            src_vocabs,
+            use_src_map,
+            decode_strategy,
+        )
 
 
 class GeneratorLM(Inference):

@@ -868,7 +868,7 @@ def inmt_opts(parser, dynamic=False):
     _add_logging_opts(parser, is_train=False)
 
     group = parser.add_argument_group('Efficiency')
-    group.add('--batch_size', '-batch_size', type=int, default=30,
+    group.add('--batch_size', '-batch_size', type=int, default=1,
               help='Batch size')
     group.add('--batch_type', '-batch_type', default='sents',
               choices=["sents", "tokens"],
