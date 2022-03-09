@@ -337,3 +337,9 @@ class ArgumentParser(cfargparse.ArgumentParser, DataOptsCheckerMixin):
         # It comes from training
         # TODO: needs to be added as inference opt
         opt.share_vocab = False
+
+    @classmethod
+    def validate_simulate_opts(cls, opt):
+        if not opt.tgt:
+            raise AssertionError("The reference translation is mandatory "
+                                 + "for the user simulation.")

@@ -2,42 +2,57 @@
 # -*- coding: utf-8 -*-
 """Simulate a user in an INMT session."""
 from onmt.utils.logging import init_logger
-from onmt.utils.misc import split_corpus
 from onmt.translate.translator import build_translator
 
 import onmt.opts as opts
 from onmt.utils.parse import ArgumentParser
-from collections import defaultdict
+
+
+def get_prefix(hyp, ref):
+    prefix = []
+    for n in range(min(len(hyp), len(ref))):
+        prefix.append(ref[n])
+        if hyp[n] != ref[n]:
+            break
+    return ' '.join(prefix)
 
 
 def simulate(opt):
     ArgumentParser.validate_translate_opts(opt)
+    ArgumentParser.validate_simulate_opts(opt)
     logger = init_logger(opt.log_file)
 
     translator = build_translator(opt, logger=logger, report_score=True)
-    src_shards = split_corpus(opt.src, opt.shard_size)
-    tgt_shards = split_corpus(opt.tgt, opt.shard_size)
-    features_shards = []
-    features_names = []
-    for feat_name, feat_path in opt.src_feats.items():
-        features_shards.append(split_corpus(feat_path, opt.shard_size))
-        features_names.append(feat_name)
-    shard_pairs = zip(src_shards, tgt_shards, *features_shards)
 
-    for i, (src_shard, tgt_shard, *features_shard) in enumerate(shard_pairs):
-        features_shard_ = defaultdict(list)
-        for j, x in enumerate(features_shard):
-            features_shard_[features_names[j]] = x
-        logger.info("Translating shard %d." % i)
-        translator.translate(
-            src=src_shard,
-            src_feats=features_shard_,
-            tgt=tgt_shard,
+    with open(opt.src, "rb") as f:
+        srcs = f.readlines()
+    with open(opt.tgt, "rb") as f:
+        refs = f.readlines()
+
+    for n in range(len(srcs)):
+        logger.info("Processing sentence %d." % n)
+        src = srcs[n]
+        ref = refs[n]
+        score, hyp = translator.translate(
+            src=[src],
+            src_feats=[],
+            tgt=[],
             batch_size=opt.batch_size,
             batch_type=opt.batch_type,
             attn_debug=opt.attn_debug,
             align_debug=opt.align_debug
             )
+        while hyp != ref:
+            feedback = get_prefix(hyp, ref)
+            score, hyp = translator.translate(
+                src=[src],
+                src_feats=[],
+                tgt=[feedback],
+                batch_size=opt.batch_size,
+                batch_type=opt.batch_type,
+                attn_debug=opt.attn_debug,
+                align_debug=opt.align_debug
+                )
 
 
 def _get_parser():
