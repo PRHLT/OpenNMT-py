@@ -1011,7 +1011,24 @@ class INMTTranslator(Translator):
         align_debug=False,
         phrase_table="",
     ):
-        self.prefix = prefix
+        tgt_data = {
+            "reader": self.tgt_reader,
+            "data": prefix,
+            "features": {}
+        }
+        _readers, _data = inputters.Dataset.config(
+            [("tgt", tgt_data)]
+        )
+
+        data = inputters.Dataset(
+            self.fields,
+            readers=_readers,
+            data=_data,
+            sort_key=inputters.str2sortkey[self.data_type],
+            filter_pred=self._filter_pred,
+        )
+
+        self.prefix = data.prefix
         self.translate(src, src_feats, tgt, batch_size, batch_type,
                        attn_debug, align_debug, phrase_table,)
 
