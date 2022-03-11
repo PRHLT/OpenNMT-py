@@ -342,7 +342,7 @@ class ArgumentParser(cfargparse.ArgumentParser, DataOptsCheckerMixin):
     def validate_simulate_opts(cls, opt):
         if not opt.tgt:
             raise ValueError("The reference translation is mandatory"
-                             + "for the user simulation.")
+                             + " for the user simulation.")
 
     @classmethod
     def validate_inmt_opts(cls, opt):

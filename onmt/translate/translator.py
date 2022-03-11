@@ -999,6 +999,14 @@ class INMTTranslator(Translator):
         super().__init__(*args, **kwds)
         self.prefix = None
 
+    @classmethod
+    def validate_task(cls, task):
+        if task != ModelTask.INMT:
+            raise ValueError(
+                f"Translator does not support task {task}."
+                f" Tasks supported: {ModelTask.INMT}"
+            )
+
     def prefix_based_inmt(
         self,
         src,
@@ -1011,13 +1019,18 @@ class INMTTranslator(Translator):
         align_debug=False,
         phrase_table="",
     ):
+        src_data = {
+            "reader": self.src_reader,
+            "data": src,
+            "features": src_feats
+        }
         tgt_data = {
             "reader": self.tgt_reader,
             "data": prefix,
             "features": {}
         }
         _readers, _data = inputters.Dataset.config(
-            [("tgt", tgt_data)]
+            [("src", src_data), ("tgt", tgt_data)]
         )
 
         data = inputters.Dataset(
@@ -1028,9 +1041,22 @@ class INMTTranslator(Translator):
             filter_pred=self._filter_pred,
         )
 
-        self.prefix = data.prefix
-        self.translate(src, src_feats, tgt, batch_size, batch_type,
-                       attn_debug, align_debug, phrase_table,)
+        data_iter = inputters.OrderedIterator(
+            dataset=data,
+            device=self._dev,
+            batch_size=batch_size,
+            batch_size_fn=max_tok_len if batch_type == "tokens" else None,
+            train=False,
+            sort=False,
+            sort_within_batch=True,
+            shuffle=False,
+        )
+
+        for batch in data_iter:
+            self.prefix = batch.tgt
+
+        return self.translate(src, src_feats, tgt, batch_size, batch_type,
+                              attn_debug, align_debug, phrase_table)
 
     def _translate_batch_with_strategy(
         self, batch, src_vocabs, decode_strategy
