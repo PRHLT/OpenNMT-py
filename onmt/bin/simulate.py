@@ -8,22 +8,16 @@ import onmt.opts as opts
 from onmt.utils.parse import ArgumentParser
 
 
-def eos_needed(hyp, ref):
-    if len(hyp) <= len(ref):
-        return False
-    for n in range(len(ref)):
-        if hyp[n] != ref[n]:
-            return False
-    return True
-
-
 def get_prefix(hyp, ref):
     prefix = []
-    for n in range(min(len(hyp), len(ref))):
+    correction = False
+    n = 0
+    while not correction and n < len(ref):
         prefix.append(ref[n])
-        if hyp[n] != ref[n]:
-            break
-    return ' '.join(prefix)
+        if n >= len(hyp) or hyp[n] != ref[n]:
+            correction = True
+        n += 1
+    return ' '.join(prefix), correction
 
 
 def simulate(opt):
@@ -46,13 +40,13 @@ def simulate(opt):
         score, hyp = translator.translate(src=[src], batch_size=1)
 
         while hyp[0][0] != ref:
-            feedback = get_prefix(hyp[0][0].split(), ref.split())
+            feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
+            if not correction:  # End of sentence needed.
+                break
             score, hyp = translator.prefix_based_inmt(
                 src=[src],
                 prefix=[feedback]
                 )
-            if eos_needed(hyp[0][0].split(), ref.split()):
-                break
 
 
 def _get_parser():
