@@ -39,6 +39,11 @@ def simulate(opt):
         ref = refs[n].decode('utf-8').strip()
         score, hyp = translator.translate(src=[src], batch_size=1)
 
+        print("Source: {0}".format(src))
+        print("Reference  0: {0}".format(ref))
+        print("Hypothesis 0: {0}".format(hyp[0][0]))
+        print()
+        cont = 1
         while hyp[0][0] != ref:
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
             if not correction:  # End of sentence needed.
@@ -47,6 +52,10 @@ def simulate(opt):
                 src=[src],
                 prefix=[feedback]
                 )
+            print("Reference  {1}: {0}".format(ref, cont))
+            print("Hypothesis {1}: {0}".format(hyp[0][0], cont))
+            print()
+            cont += 1
 
 
 def _get_parser():

@@ -34,6 +34,7 @@ def build_translator(opt, report_score=True, logger=None, out_file=None):
 
     scorer = onmt.translate.GNMTGlobalScorer.from_opt(opt)
 
+    model_opt.model_task = ModelTask.INMT
     if model_opt.model_task == ModelTask.LANGUAGE_MODEL:
         translator = GeneratorLM.from_opt(
             model,
@@ -1054,6 +1055,10 @@ class INMTTranslator(Translator):
 
         for batch in data_iter:
             self.prefix = batch.tgt
+            phrase_table = {}
+            for position, id in enumerate(batch.tgt[1:-1]):
+                if id == 0:
+                    phrase_table[position] = prefix[0].split()[position]
 
         return self.translate(src, src_feats, tgt, batch_size, batch_type,
                               attn_debug, align_debug, phrase_table)
@@ -1159,6 +1164,157 @@ class INMTTranslator(Translator):
             use_src_map,
             decode_strategy,
         )
+
+
+    def _translate(
+        self,
+        data,
+        tgt=None,
+        batch_size=None,
+        batch_type="sents",
+        attn_debug=False,
+        align_debug=False,
+        phrase_table="",
+        dynamic=False,
+        transform=None
+    ):
+
+        data_iter = inputters.OrderedIterator(
+            dataset=data,
+            device=self._dev,
+            batch_size=batch_size,
+            batch_size_fn=max_tok_len if batch_type == "tokens" else None,
+            train=False,
+            sort=False,
+            sort_within_batch=True,
+            shuffle=False,
+        )
+
+        xlation_builder = onmt.translate.InteractiveTranslationBuilder(
+            data,
+            self.fields,
+            self.n_best,
+            self.replace_unk,
+            tgt,
+            phrase_table,
+        )
+
+        # Statistics
+        counter = count(1)
+        pred_score_total, pred_words_total = 0, 0
+        gold_score_total, gold_words_total = 0, 0
+
+        all_scores = []
+        all_predictions = []
+
+        start_time = time.time()
+
+        for batch in data_iter:
+            batch_data = self.translate_batch(
+                batch, data.src_vocabs, attn_debug
+            )
+            translations = xlation_builder.from_batch(batch_data)
+
+            for trans in translations:
+                all_scores += [trans.pred_scores[: self.n_best]]
+                pred_score_total += trans.pred_scores[0]
+                pred_words_total += len(trans.pred_sents[0])
+                if tgt is not None:
+                    gold_score_total += trans.gold_score
+                    gold_words_total += len(trans.gold_sent) + 1
+
+                n_best_preds = [
+                    " ".join(pred) for pred in trans.pred_sents[: self.n_best]
+                ]
+                if self.report_align:
+                    align_pharaohs = [
+                        build_align_pharaoh(align)
+                        for align in trans.word_aligns[: self.n_best]
+                    ]
+                    n_best_preds_align = [
+                        " ".join(align) for align in align_pharaohs
+                    ]
+                    n_best_preds = [
+                        pred + DefaultTokens.ALIGNMENT_SEPARATOR + align
+                        for pred, align in zip(
+                            n_best_preds, n_best_preds_align
+                        )
+                    ]
+
+                if dynamic:
+                    n_best_preds = [transform.apply_reverse(x)
+                                    for x in n_best_preds]
+                all_predictions += [n_best_preds]
+                self.out_file.write("\n".join(n_best_preds) + "\n")
+                self.out_file.flush()
+
+                if self.verbose:
+                    sent_number = next(counter)
+                    output = trans.log(sent_number)
+                    if self.logger:
+                        self.logger.info(output)
+                    else:
+                        os.write(1, output.encode("utf-8"))
+
+                if attn_debug:
+                    preds = trans.pred_sents[0]
+                    preds.append(DefaultTokens.EOS)
+                    attns = trans.attns[0].tolist()
+                    if self.data_type == "text":
+                        srcs = trans.src_raw
+                    else:
+                        srcs = [str(item) for item in range(len(attns[0]))]
+                    output = report_matrix(srcs, preds, attns)
+                    if self.logger:
+                        self.logger.info(output)
+                    else:
+                        os.write(1, output.encode("utf-8"))
+
+                if align_debug:
+                    tgts = trans.pred_sents[0]
+                    align = trans.word_aligns[0].tolist()
+                    if self.data_type == "text":
+                        srcs = trans.src_raw
+                    else:
+                        srcs = [str(item) for item in range(len(align[0]))]
+                    output = report_matrix(srcs, tgts, align)
+                    if self.logger:
+                        self.logger.info(output)
+                    else:
+                        os.write(1, output.encode("utf-8"))
+
+        end_time = time.time()
+
+        if self.report_score:
+            msg = self._report_score(
+                "PRED", pred_score_total, pred_words_total
+            )
+            self._log(msg)
+            if tgt is not None:
+                msg = self._report_score(
+                    "GOLD", gold_score_total, gold_words_total
+                )
+                self._log(msg)
+
+        if self.report_time:
+            total_time = end_time - start_time
+            self._log("Total translation time (s): %f" % total_time)
+            self._log(
+                "Average translation time (s): %f"
+                % (total_time / len(all_predictions))
+            )
+            self._log(
+                "Tokens per second: %f" % (pred_words_total / total_time)
+            )
+
+        if self.dump_beam:
+            import json
+
+            json.dump(
+                self.translator.beam_accum,
+                codecs.open(self.dump_beam, "w", "utf-8"),
+            )
+        return all_scores, all_predictions
 
 
 class GeneratorLM(Inference):

@@ -5,7 +5,6 @@ from onmt.constants import DefaultTokens
 from onmt.inputters.text_dataset import TextMultiField
 from onmt.utils.alignment import build_align_pharaoh
 
-
 class TranslationBuilder(object):
     """
     Build a word-based translation from the batch output
@@ -121,6 +120,42 @@ class TranslationBuilder(object):
 
         return translations
 
+
+class InteractiveTranslationBuilder(TranslationBuilder):
+    def __init__(self, data, fields, n_best=1, replace_unk=False,
+                 has_tgt=False, phrase_table=""):
+        self.data = data
+        self.fields = fields
+        self._has_text_src = isinstance(
+            dict(self.fields)["src"], TextMultiField)
+        self.n_best = n_best
+        self.replace_unk = replace_unk
+        self.phrase_table_dict = {}
+        if type(phrase_table) is dict:
+             self.phrase_table_dict = phrase_table
+        self.has_tgt = has_tgt
+
+    def _build_target_tokens(self, src, src_vocab, src_raw, pred, attn):
+        tgt_field = dict(self.fields)["tgt"].base_field
+        vocab = tgt_field.vocab
+        tokens = []
+
+        for tok in pred:
+            if tok < len(vocab):
+                tokens.append(vocab.itos[tok])
+            else:
+                tokens.append(src_vocab.itos[tok - len(vocab)])
+            if tokens[-1] == tgt_field.eos_token:
+                tokens = tokens[:-1]
+                break
+        if self.replace_unk and attn is not None and src is not None:
+            for i in range(len(tokens)):
+                if tokens[i] == tgt_field.unk_token:
+                    _, max_index = attn[i][:len(src_raw)].max(0)
+                    tokens[i] = src_raw[max_index.item()]
+                    if self.phrase_table_dict and i in self.phrase_table_dict:
+                        tokens[i] = self.phrase_table_dict[i]
+        return tokens
 
 class Translation(object):
     """Container for a translated sentence.
