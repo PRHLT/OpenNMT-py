@@ -891,6 +891,13 @@ def inmt_opts(parser, dynamic=False):
 # found in the LICENSE file.
 
 
+def inmt_simulation_opts(parser, dynamic=False):
+    """ Interactive neural machine translation simulation options """
+    group = parser.add_argument_group('Simulation')
+    group.add('--inmt_verbose', '-inmt_verbose', action='store_true',
+              help="Increase the verbose level of the simulation.")
+
+
 class StoreLoggingLevelAction(configargparse.Action):
     """ Convert string to logging level """
     import logging
