@@ -14,7 +14,7 @@ def get_prefix(hyp, ref):
     n = 0
     while not correction and n < len(ref):
         prefix.append(ref[n])
-        if n >= len(hyp) or hyp[n] != ref[n]:
+        if n >= len(hyp) or (hyp[n] != ref[n] and ref[n][-2:]!='@@'):
             correction = True
         n += 1
     return ' '.join(prefix), correction
@@ -40,9 +40,9 @@ def simulate(opt):
         score, hyp = translator.translate(src=[src], batch_size=1)
 
         if opt.inmt_verbose:
-            print("Source: {0}".format(src.decode('utf-8').strip()))
-            print("Reference: {0}".format(ref))
-            print("Initial hypothesis: {0}".format(hyp[0][0]))
+            print("Source: {0}".format(src.decode('utf-8').strip().replace('@@ ','')))
+            print("Reference: {0}".format(ref.replace('@@ ','')))
+            print("Initial hypothesis: {0}".format(hyp[0][0].replace('@@ ','')))
             print()
 
         cont = 1
@@ -56,7 +56,7 @@ def simulate(opt):
                 )
             if opt.inmt_verbose:
                 print("Prefix: {0}".format(feedback))
-                print("Hypothesis {1}: {0}".format(hyp[0][0], cont))
+                print("Hypothesis {1}: {0}".format(hyp[0][0].replace('@@ ',''), cont))
                 print()
             cont += 1
 
