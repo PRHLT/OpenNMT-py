@@ -10,15 +10,16 @@ from onmt.utils.parse import ArgumentParser
 
 def get_prefix(hyp, ref):
     prefix = []
-    correction = False
+    correction = ''
     n = 0
-    while not correction and n < len(ref):
+    while correction == '' and n < len(ref):
         prefix.append(ref[n])
         if n >= len(hyp) or hyp[n] != ref[n]:
-            correction = True
+            correction += ref[n]
         n += 1
     while prefix[-1][-2:] == '@@':
         prefix.append(ref[n])
+        correction += ref[n]
         n += 1
 
     return ' '.join(prefix), correction
@@ -37,11 +38,18 @@ def simulate(opt):
     with open(opt.tgt, "rb") as f:
         refs = f.readlines()
 
+    mouse_actions = 0
+    word_strokes = 0
+    character_strokes = 0
+
     for n in range(len(srcs)):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
         score, hyp = translator.translate(src=[src], batch_size=1)
+
+        old_feedback = ''
+        eos = False
 
         if opt.inmt_verbose:
             print("Source: {0}".format(src.decode('utf-8').strip()
@@ -52,20 +60,36 @@ def simulate(opt):
             print()
 
         cont = 1
-        while hyp[0][0] != ref:
+        while hyp[0][0] != ref and not eos:
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
-            if not correction:  # End of sentence needed.
-                break
+
+            word_strokes_ = 1
+            mouse_actions_ = 1 if feedback != old_feedback + correction else 0
+            character_strokes_ = len(correction)
+
+            if correction == '':  # End of sentence needed.
+                correction = 'EoS'
+                character_strokes_ = 1
+                eos = True
             score, hyp = translator.prefix_based_inmt(
                 src=[src],
                 prefix=[feedback]
                 )
             if opt.inmt_verbose:
                 print("Prefix: {0}".format(feedback))
+                print("Correction: {0}".format(correction.replace('@@', '')))
                 print("Hypothesis {1}: {0}"
                       .format(hyp[0][0].replace('@@ ', ''), cont))
+                print('~~~~~~~~~~~~~~~~~~')
+                print('Mouse actions: {0}'.format(mouse_actions_))
+                print('Word strokes: {0}'.format(word_strokes_))
+                print('Character strokes: {0}'.format(character_strokes_))
                 print()
             cont += 1
+            mouse_actions += mouse_actions_
+            word_strokes += word_strokes_
+            character_strokes += character_strokes_
+            old_feedback = feedback
 
         if opt.inmt_verbose:
             print('-------------------------------------------\n')
