@@ -1165,7 +1165,6 @@ class INMTTranslator(Translator):
             decode_strategy,
         )
 
-
     def _translate(
         self,
         data,
