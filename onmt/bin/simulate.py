@@ -14,9 +14,13 @@ def get_prefix(hyp, ref):
     n = 0
     while not correction and n < len(ref):
         prefix.append(ref[n])
-        if n >= len(hyp) or (hyp[n] != ref[n] and ref[n][-2:] != '@@'):
+        if n >= len(hyp) or hyp[n] != ref[n]:
             correction = True
         n += 1
+    while prefix[-1][-2:] == '@@':
+        prefix.append(ref[n])
+        n += 1
+
     return ' '.join(prefix), correction
 
 
