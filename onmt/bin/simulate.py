@@ -38,9 +38,9 @@ def simulate(opt):
     with open(opt.tgt, "rb") as f:
         refs = f.readlines()
 
-    mouse_actions = 0
-    word_strokes = 0
-    character_strokes = 0
+    total_mouse_actions = 0
+    total_word_strokes = 0
+    total_character_strokes = 0
 
     for n in range(len(srcs)):
         logger.info("Processing sentence %d." % n)
@@ -60,6 +60,9 @@ def simulate(opt):
             print()
 
         cont = 1
+        mouse_actions = 0
+        word_strokes = 0
+        character_strokes = 0
         while hyp[0][0] != ref and not eos:
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
 
@@ -93,7 +96,15 @@ def simulate(opt):
             old_feedback = feedback
 
         if opt.inmt_verbose:
+            print('------------------\n')
+            print('Total mouse actions: {0}'.format(mouse_actions))
+            print('Total word strokes: {0}'.format(word_strokes))
+            print('Total character strokes: {0}'.format(character_strokes))
+            print()
             print('-------------------------------------------\n')
+        total_mouse_actions += mouse_actions
+        total_word_strokes += word_strokes
+        total_character_strokes += character_strokes
 
     print('Metric calculation to be implemented soon.')
 
