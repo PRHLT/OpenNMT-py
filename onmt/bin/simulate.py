@@ -64,7 +64,8 @@ def simulate(opt):
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
 
             word_strokes_ = 1
-            mouse_actions_ = 1 if feedback != old_feedback + correction else 0
+            mouse_actions_ = (1 if feedback != old_feedback
+                              + ' ' + correction else 0)
             character_strokes_ = len(correction)
 
             if correction == '':  # End of sentence needed.
