@@ -8,6 +8,14 @@ import onmt.opts as opts
 from onmt.utils.parse import ArgumentParser
 
 
+def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
+    characters = sum([len(ref) for ref in refs])
+    words = sum([len(ref.split()) for ref in refs])
+    print('MAR: {0}'.format(round(mouse_actions / characters * 100, 1)))
+    print('WSR: {0}'.format(round(word_strokes / words * 100, 1)))
+    print('KSR: {0}'.format(round(character_strokes / characters * 100, 1)))
+
+
 def get_prefix(hyp, ref):
     prefix = []
     correction = ''
@@ -106,7 +114,8 @@ def simulate(opt):
         total_word_strokes += word_strokes
         total_character_strokes += character_strokes
 
-    print('Metric calculation to be implemented soon.')
+    compute_metrics(refs, total_mouse_actions,
+                    total_word_strokes, total_character_strokes)
 
 
 def _get_parser():
