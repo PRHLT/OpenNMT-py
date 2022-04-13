@@ -896,6 +896,9 @@ def inmt_simulation_opts(parser, dynamic=False):
     group = parser.add_argument_group('Simulation')
     group.add('--inmt_verbose', '-inmt_verbose', action='store_true',
               help="Increase the verbose level of the simulation.")
+    group.add('--characeter_level', '-character_level', action='store_true',
+              help="Perform the simulation generating new hypothesis each time\
+               the user types a character.")
 
 
 class StoreLoggingLevelAction(configargparse.Action):
