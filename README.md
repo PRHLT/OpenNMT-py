@@ -57,30 +57,24 @@ cp -r dataset/EuTrans ~/TA/Practica2/data
 Note: alternatively, the variable `DATA_ROOT_PATH` from `config.yaml` can be edited to indicate the path to the dataset.
 
 ## Training
-After copying the dataset to the working directory, you can start the training by doing:
+Prior to training the model, the vocabulary need to be build. You can do so by doing:
 
 ```console
-~/TA/Practica2$ python ${NMT}/nmt-keras/main.py 2>traza &
+~/TA/Practica2$  onmt_build_vocab -config ${NMT}/OpenNMT-py/config.yaml -n_sample 10000
 ```
 
-This process will take some minutes. You can follow its evolution by doing:
+After that, you can start the training by doing:
 
 ```console
-~/TA/Practica2$ tail -f traza | grep "\[*\]"
+~/TA/Practica2$ onmt_train -config ${NMT}/OpenNMT-py/config.yaml
 ```
 
 ## Translation
 Once the network has been trained, the translation can be performed by doing:
 
 ```console
-~/TA/Practica2$ ln -s trained_models/EuTrans_esen_AttentionRNNEncoderDecoder_\
-src_emb_64_bidir_True_enc_LSTM_64_dec_ConditionalLSTM_64_deepout_\
-linear_trg_emb_64_Adam_0.001 trained_model
-~/TA/Practica2$ python ${NMT}/nmt-keras/sample_ensemble.py \
---models trained_model/epoch_5 \
---dataset datasets/Dataset_EuTrans_esen.pkl \
---text Data/EuTrans/test.es \
---dest hyp.test.en
+~/TA/Practica2$ onmt_translate -model models/EuTrans_step_1000.pt \
+-src ${NMT}/OpenNMT-py/dataset/EuTrans/test.es -output hyp.test.en -verbose
 ```
 
 ## Evaluation
@@ -95,25 +89,10 @@ The translation hypothesis can be evaluated by doing:
 In order to tune the network parameters it is recommended to make a local copy of the `config.yaml` file:
 
 ```console
-~/TA/Practica2$ cp ${NMT}/nmt-keras/config.yaml .
+~/TA/Practica2$ cp `${NMT}/OpenNMT-py/config.yaml .
 ```
 
-After that, you can edit the desired parameters in the copy we have just created. Then, we can train the network as follows:
-
-```console
-~/TA/Practica2$ python ${NMT}/nmt-keras/main.py -c config.py 2>traza &
-```
-
-Similarly, the translation will be conducted as follows:
-
-```console
-~/TA/Practica2$ python ${NMT}/nmt-keras/sample_ensemble.py \
---models trained_model/epoch_5 \
---dataset datasets/Dataset_EuTrans_esen.pkl \
---text Data/EuTrans/test.es \
---dest hyp.test.en \
---config config.py
-```
+After that, you can edit the desired parameters in the copy we have just created. Then, you just need to replace the path of the config both for building the vocabulary and training the model.
 
 ## Bibliography
 Álvaro Peris and Francisco Casacuberta. [NMT-Keras: a Very Flexible Toolkit with
