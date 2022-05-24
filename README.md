@@ -24,14 +24,8 @@ In order to install *OpenNMT-py*, it is assumed that you have created a director
 ~/TA$ ./full_installation.sh ${INSTALLATION_PATH}
   ```
 
-Once the installation has ended, you will need to ensure that *Tensorflow* is set up as *Keras* backend. To do so you will need to check if the following line is present in the file `~/.keras/keras.json`:
-
-```json
-"backend": "tensorflow"
-```
-
 ### Docker
-Alternatively, in the directory [docker](docker/English.md) you can find instrucction to run the toolkit through Docker.
+Alternatively, in the directory [docker](docker/English.md) you can find instructions to run the toolkit through Docker.
 
 ## Variable definition
 For the correct use of *OpenNMT-py*, the following variables need to be set up:
@@ -40,12 +34,10 @@ For the correct use of *OpenNMT-py*, the following variables need to be set up:
 ~/TA$ export TA=~/TA
 ~/TA$ export NMT=${INSTALLATION_PATH}/NMT_TA
 ~/TA$ export PATH=${NMT}/miniconda/bin/:${PATH}
-~/TA$ export PYTHONPATH=${PYTHONPATH}:${NMT}/nmt-keras/keras:\
-${NMT}/nmt-keras/coco-caption:${NMT}/nmt-keras/multimodal_keras_wrapper
 ```
 
 ## Network description
-The file `${NMT}/nmt-keras/config.py` contains the network configuration:
+The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 
 * The encoder is a bidirectional LSTM with 64 neurons.
 * A source word vector of size 64.
@@ -55,14 +47,14 @@ The file `${NMT}/nmt-keras/config.py` contains the network configuration:
 * The number of epochs is set to 5.
 
 ## Dataset
-The dataset is located at `dataset/EuTrans`. It is already set up a no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
+The dataset is located at `dataset/EuTrans`. It is already set up and no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
 
 ```
 mkdir ~/TA/Practica2/data
 cp -r dataset/EuTrans ~/TA/Practica2/data
 ```
 
-Note: alternatively, the variable `DATA_ROOT_PATH` from `config.py` can be edited to indicate the path to the dataset.
+Note: alternatively, the variable `DATA_ROOT_PATH` from `config.yaml` can be edited to indicate the path to the dataset.
 
 ## Training
 After copying the dataset to the working directory, you can start the training by doing:
@@ -100,10 +92,10 @@ The translation hypothesis can be evaluated by doing:
 ```
 
 ## Tunning
-In order to tune the network parameters it is recommended to make a local copy of the `config.py` file:
+In order to tune the network parameters it is recommended to make a local copy of the `config.yaml` file:
 
 ```console
-~/TA/Practica2$ cp ${NMT}/nmt-keras/config.py .
+~/TA/Practica2$ cp ${NMT}/nmt-keras/config.yaml .
 ```
 
 After that, you can edit the desired parameters in the copy we have just created. Then, we can train the network as follows:
