@@ -17,8 +17,8 @@ This branch of OpenNMT-py presents a version of the toolkit intended for teachin
 In order to install *OpenNMT-py*, it is assumed that you have created a directory "TA" in which to conduct the lab sessions. For simplicity's sake, throught this guide we shall assume that this directory is located at the home. Similarly, we shall asume that you wish to install *OpenNMT-py* into the "TA" directory. Otherwise you will need to modify `$INSTALLATION_PATH`.
 
   ```console
-~/TA$ wget https://raw.githubusercontent.com/PRHLT/nmt-keras_practicas-TA\
-/master/full_installation.sh
+~/TA$ wget https://raw.githubusercontent.com/PRHLT/OpenNMT-py\
+/lab_sessions/full_installation.sh
 ~/TA$ chmod +x full_installation.sh
 ~/TA$ export INSTALLATION_PATH=~/TA
 ~/TA$ ./full_installation.sh ${INSTALLATION_PATH}
