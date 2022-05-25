@@ -31,7 +31,6 @@ Alternatively, in the directory [docker](docker/English.md) you can find instruc
 For the correct use of *OpenNMT-py*, the following variables need to be set up:
 
 ```console
-~/TA$ export TA=~/TA
 ~/TA$ export NMT=${INSTALLATION_PATH}/NMT_TA
 ~/TA$ export PATH=${NMT}/miniconda/bin/:${PATH}
 ```
@@ -39,10 +38,10 @@ For the correct use of *OpenNMT-py*, the following variables need to be set up:
 ## Network description
 The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 
-* The encoder is a bidirectional LSTM with 64 neurons.
-* A source word vector of size 64.
-* The decoder is an LSTM with 64 neurons.
-* A target word vector of size 64.
+* The encoder is a bidirectional LSTM with 128 neurons.
+* A source word vector of size 128.
+* The decoder is an LSTM with 128 neurons.
+* A target word vector of size 128.
 * The learning rate is set to 0.001.
 * The number of epochs is set to 5.
 
@@ -73,8 +72,8 @@ After that, you can start the training by doing:
 Once the network has been trained, the translation can be performed by doing:
 
 ```console
-~/TA/Practica2$ onmt_translate -model data/models/EuTrans_step_1000.pt \
--src ${NMT}/OpenNMT-py/dataset/EuTrans/test.es -output hyp.test.en -verbose
+~/TA/Practica2$ onmt_translate -model data/models/EuTrans_step_5000.pt \
+-src ${NMT}/OpenNMT-py/dataset/EuTrans/test.es -output hyp.test.en -verbose -replace_unk
 ```
 
 ## Evaluation

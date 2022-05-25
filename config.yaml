@@ -17,10 +17,10 @@ data:
 # Model
 decoder_type: rnn
 encoder_type: rnn
-src_word_vec_size: 64
-tgt_word_vec_size: 64
-enc_rnn_size: 64
-dec_rnn_size: 64
+src_word_vec_size: 128
+tgt_word_vec_size: 128
+enc_rnn_size: 128
+dec_rnn_size: 128
 optim: adam
 adam_beta1: 0.9
 adam_beta2: 0.998
@@ -37,7 +37,7 @@ world_size: 1
 # Checkpoints
 save_model: data/models/EuTrans
 save_checkpoint_steps: 100
-train_steps: 1000
+train_steps: 5000
 valid_steps: 100
 keep_checkpoint: 10
 report_every: 100
