@@ -1,0 +1,43 @@
+# Example of a configuration yaml file.
+
+# Data
+save_data: data/EuTrans
+src_vocab: data/EuTrans/es.vocab
+tgt_vocab: data/EuTrans/en.vocab
+overwrite: False
+
+# Corpora:
+data:
+    corpus_1:
+        path_src: data/EuTrans/training.es
+        path_tgt: data/EuTrans/training.en
+    valid:
+        path_src: data/EuTrans/development.es
+        path_tgt: data/EuTrans/development.en
+# Model
+decoder_type: rnn
+encoder_type: rnn
+src_word_vec_size: 64
+tgt_word_vec_size: 64
+enc_rnn_size: 64
+dec_rnn_size: 64
+optim: adam
+adam_beta1: 0.9
+adam_beta2: 0.998
+learning_rate: 0.001
+batch_size: 50
+enc_layers: 1
+dec_layers: 1
+
+# Train on a single GPU (uncomment the following lines for using GPU)
+world_size: 1
+# gpu_ranks:
+#  - 0
+
+# Checkpoints
+save_model: data/models/EuTrans
+save_checkpoint_steps: 100
+train_steps: 1000
+valid_steps: 100
+keep_checkpoint: 10
+report_every: 100

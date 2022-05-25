@@ -49,12 +49,12 @@ The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 ## Dataset
 The dataset is located at `dataset/EuTrans`. It is already set up and no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
 
-```
-mkdir ~/TA/Practica2/data
-cp -r dataset/EuTrans ~/TA/Practica2/data
+```console
+~/TA/Practica2$ mkdir data
+~/TA/Practica2$ cp -r ${NMT}/OpenNMT-py/dataset/EuTrans data/
 ```
 
-Note: alternatively, the variable `DATA_ROOT_PATH` from `config.yaml` can be edited to indicate the path to the dataset.
+Note: alternatively, the paths from the `data` and `corpora` sections of the `config.yaml` can be edited to indicate the path to the dataset.
 
 ## Training
 Prior to training the model, the vocabulary need to be build. You can do so by doing:
@@ -73,7 +73,7 @@ After that, you can start the training by doing:
 Once the network has been trained, the translation can be performed by doing:
 
 ```console
-~/TA/Practica2$ onmt_translate -model models/EuTrans_step_1000.pt \
+~/TA/Practica2$ onmt_translate -model data/models/EuTrans_step_1000.pt \
 -src ${NMT}/OpenNMT-py/dataset/EuTrans/test.es -output hyp.test.en -verbose
 ```
 
