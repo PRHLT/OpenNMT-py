@@ -43,7 +43,6 @@ The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 * The decoder is an LSTM with 128 neurons.
 * A target word vector of size 128.
 * The learning rate is set to 0.001.
-* The number of epochs is set to 5.
 
 ## Dataset
 The dataset is located at `dataset/EuTrans`. It is already set up and no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
@@ -80,15 +79,14 @@ Once the network has been trained, the translation can be performed by doing:
 The translation hypothesis can be evaluated by doing:
 
 ```console
-~/TA/Practica2$ {$NMT}/nmt-keras/utils/multi-bleu.perl \
-	-lc Data/EuTrans/test.en  < hyp.test.en
+~/TA/Practica2$ sacrebleu --force -f text data/EuTrans/test.en < hyp.test.en
 ```
 
 ## Tunning
 In order to tune the network parameters it is recommended to make a local copy of the `config.yaml` file:
 
 ```console
-~/TA/Practica2$ cp `${NMT}/OpenNMT-py/config.yaml .
+~/TA/Practica2$ cp ${NMT}/OpenNMT-py/config.yaml .
 ```
 
 After that, you can edit the desired parameters in the copy we have just created. Then, you just need to replace the path of the config both for building the vocabulary and training the model.
