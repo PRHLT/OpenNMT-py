@@ -48,6 +48,7 @@ The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 The dataset is located at `dataset/EuTrans`. It is already set up and no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
 
 ```console
+~/TA> mkdir Practica2; cd Practica2
 ~/TA/Practica2$ mkdir data
 ~/TA/Practica2$ cp -r ${NMT}/OpenNMT-py/dataset/EuTrans data/
 ```
