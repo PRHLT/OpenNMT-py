@@ -38,11 +38,12 @@ For the correct use of *OpenNMT-py*, the following variables need to be set up:
 ## Network description
 The file `${NMT}/OpenNMT-py/config.yaml` contains the network configuration:
 
-* The encoder is a bidirectional LSTM with 128 neurons.
-* A source word vector of size 128.
-* The decoder is an LSTM with 128 neurons.
-* A target word vector of size 128.
-* The learning rate is set to 0.001.
+* Encoder and decoder are both Transformer with 64 neurons.
+* 2 layers.
+* Hidden Transformer feed-forward of size 64.
+* 2 self-attention heads.
+* Source word vector of size 64.
+* Target word vector of size 64.
 
 ## Dataset
 The dataset is located at `dataset/EuTrans`. It is already set up and no further preprocesses are needed. However, for compatibility with the lab version, we will need to create a `data` folder in our working directory and copy the dataset there:
@@ -59,7 +60,7 @@ Note: alternatively, the paths from the `data` and `corpora` sections of the `co
 Prior to training the model, the vocabulary need to be build. You can do so by doing:
 
 ```console
-~/TA/Practica2$  onmt_build_vocab -config ${NMT}/OpenNMT-py/config.yaml -n_sample 10000
+~/TA/Practica2$  onmt_build_vocab -config ${NMT}/OpenNMT-py/config.yaml
 ```
 
 After that, you can start the training by doing:
