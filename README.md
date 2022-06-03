@@ -94,7 +94,4 @@ In order to tune the network parameters it is recommended to make a local copy o
 After that, you can edit the desired parameters in the copy we have just created. Then, you just need to replace the path of the config both for building the vocabulary and training the model.
 
 ## Bibliography
-Álvaro Peris and Francisco Casacuberta. [NMT-Keras: a Very Flexible Toolkit with
-a Focus on Interactive NMT and Online Learning](https://ufal.mff.cuni.cz/pbml/111/art-peris-casacuberta.pdf). The Prague Bulletin of Mathematical Linguistics. 2018.
-
 Guillaume Klein, Yoon Kim, Yuntian Deng, Jean Senellart and Alexander Rush. [OpenNMT: Open-Source Toolkit for Neural Machine Translation](https://www.aclweb.org/anthology/P17-4012). In Proceedings of the Association for Computational Linguistics: System Demonstration, pages 67–72. 2017.
