@@ -21,15 +21,30 @@ def get_character_level_corrections_prefix(hyp, ref):
     correction = ''
     n = 0
     while correction == '' and n < len(ref):
-        if n >= len(hyp) or hyp[n] != ref[n]:
-            for i in range(len(ref[n])):
-                correction += ref[n][i]
-                if i >= len(hyp[n]):
+        if n >= len(hyp):
+            correction += ref[n][0]
+            break
+        elif hyp[n] != ref[n]:
+            for i in range(len(hyp[n])):
+                # La referencia es mas pequenya
+                if i >= len(ref[n]):
+                    prefix.append(correction)
+                    correction = ''
                     break
+                correction += ref[n][i]
+                # El error esta a mitad
+                if ref[n][i] != hyp[n][i]:
+                    break
+            # La referencia es mas grande
+            if hyp[n] == ref[n][:len(hyp[n])] and len(hyp[n]) < len(ref[n]):
+                correction += ref[n][len(hyp[n])]
+            break
         else:
             prefix.append(ref[n])
         n += 1
-    return ' '.join(prefix + correction), correction
+
+    prefix.append(correction)
+    return prefix, correction
 
 
 def character_level_simulate(opt):
@@ -52,6 +67,7 @@ def character_level_simulate(opt):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
+        translator.prefix = None
         score, hyp = translator.translate(src=[src], batch_size=1)
 
         old_feedback = ''
@@ -72,8 +88,8 @@ def character_level_simulate(opt):
             feedback, correction = get_character_level_corrections_prefix(
                 hyp[0][0].split(), ref.split())
 
-            mouse_actions_ = (1 if feedback != old_feedback
-                              + ' ' + correction else 0)
+            mouse_actions_ = (1 if len(feedback) != len(old_feedback)+1
+                                else 0)
             character_strokes_ = 1
 
             if correction == '':  # End of sentence needed.
@@ -89,6 +105,7 @@ def character_level_simulate(opt):
                 print("Correction: {0}".format(correction.replace('@@', '')))
                 print("Hypothesis {1}: {0}"
                       .format(hyp[0][0].replace('@@ ', ''), cont))
+                print("Reference: {0}".format(ref.replace('@@', '')))
                 print('~~~~~~~~~~~~~~~~~~')
                 print('Mouse actions: {0}'.format(mouse_actions_))
                 print('Character strokes: {0}'.format(character_strokes_))
@@ -124,7 +141,8 @@ def get_prefix(hyp, ref):
         correction += ref[n]
         n += 1
 
-    return ' '.join(prefix), correction
+    prefix += ['']
+    return prefix, correction
 
 
 def simulate(opt):
@@ -148,6 +166,7 @@ def simulate(opt):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
+        translator.prefix = None
         score, hyp = translator.translate(src=[src], batch_size=1)
 
         old_feedback = ''
@@ -167,10 +186,9 @@ def simulate(opt):
         character_strokes = 0
         while hyp[0][0] != ref and not eos:
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
-
             word_strokes_ = 1
-            mouse_actions_ = (1 if feedback != old_feedback
-                              + ' ' + correction else 0)
+            mouse_actions_ = (1 if len(feedback) != len(old_feedback) +1
+                                else 0)
             character_strokes_ = len(correction)
 
             if correction == '':  # End of sentence needed.

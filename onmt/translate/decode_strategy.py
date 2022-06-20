@@ -244,7 +244,7 @@ class DecodeStrategy(object):
         self.forbidden_tokens = forbidden_tokens
 
     def target_prefixing(self, log_probs):
-        """Fix the first part of predictions with `self.target_prefix`.
+        """Fix the correction word position with `<<TODO>>`.
 
         Args:
             log_probs (FloatTensor): logits of size ``(B, vocab_size)``.
@@ -254,9 +254,9 @@ class DecodeStrategy(object):
         """
         _B, vocab_size = log_probs.size()
         step = len(self)
-        if (self.target_prefix is not None and
-                step <= self.target_prefix.size(1)):
-            pick_idx = self.target_prefix[:, step - 1].tolist()  # (B)
+        if (self.target_prefix is not None
+                and step <= self.target_prefix.size(1)):
+            pick_idx = self.target_prefix[:, step - 1].tolist() # (B)
             pick_coo = [[path_i, pick] for path_i, pick in enumerate(pick_idx)
                         if pick not in [self.eos, self.pad]]
             mask_pathid = [path_i for path_i, pick in enumerate(pick_idx)
@@ -270,6 +270,56 @@ class DecodeStrategy(object):
                     pick_coo.t(), pick_fill_value,
                     size=log_probs.size(), device=log_probs.device).to_dense()
                 # dropdowns: opposite of pickups, 1 for those shouldn't pick
+                dropdowns = torch.ones_like(pickups) - pickups
+                if len(mask_pathid) > 0:
+                    path_mask = torch.zeros(_B).to(self.target_prefix)
+                    path_mask[mask_pathid] = 1
+                    path_mask = path_mask.unsqueeze(1).to(dtype=bool)
+                    dropdowns = dropdowns.masked_fill(path_mask, 0)
+                # Minus dropdowns to log_probs making probabilities of
+                # unspecified index close to 0
+                log_probs -= 10000*dropdowns
+        return log_probs
+
+    def character_prefixing(self, log_probs, last_word):
+        """Fix the first part of predictions with `self.target_prefix`.
+
+        Args:
+            log_probs (FloatTensor): logits of size ``(B, vocab_size)``.
+
+        Returns:
+            log_probs (FloatTensor): modified logits in ``(B, vocab_size)``.
+        """
+        _B, vocab_size = log_probs.size()
+        step = len(self)
+        if (step in last_word):
+            # ANM: COGE LA PALABRA QUE DEBERIA IR EN LA POSICION ACTUAL
+            #pick_idx = self.target_prefix[:, step - 1].tolist()  # (B)
+            pick_idx = [last_word[step]]*self.parallel_paths
+            #pick_idx = [[25,30], [25,30], [25,30], [25,30], [25,30]]
+            # ANM: PARA LOS CASOS QUE NO SON EOS O PAD SE GUARDA PARA CADA BEAM LA PALABRA
+            #pick_coo = [[path_i, pick] for path_i, pick in enumerate(pick_idx)
+            #            if pick not in [self.eos, self.pad]]
+            pick_coo = []
+            for path_i, all_pick in enumerate(pick_idx):
+                for pick in all_pick:
+                    pick_coo.append([path_i, pick])
+            # SI PONEMOS [0,25][0,30] EN EL ARRAY AMBOS SE MARCAN LUEGO COMO POSITIVOS
+            #pick_coo = [[0,25],[0,30],[1,25],[2,25],[3,25],[4,25]]
+            # ANM: SE GUARDA AL IGUAL PARA CADA BEAM LOS CASOS DE EOS O PAD
+            mask_pathid = [path_i for path_i, pick in enumerate(pick_idx)
+                           if pick in [self.eos, self.pad]]
+            if len(pick_coo) > 0:
+                pick_coo = torch.tensor(pick_coo).to(self.target_prefix)
+                pick_fill_value = torch.ones(
+                    [pick_coo.size(0)], dtype=log_probs.dtype)
+                # pickups: Tensor where specified index were set to 1, others 0
+                # ANM: TENSOR IGUAL PARA CADA BEAM. TIENE A 1 LAS PALABRAS CORRECTAS
+                pickups = torch.sparse_coo_tensor(
+                    pick_coo.t(), pick_fill_value,
+                    size=log_probs.size(), device=log_probs.device).to_dense()
+                # dropdowns: opposite of pickups, 1 for those shouldn't pick
+                # ANM: SE VUELVE AL CONTRARIO, SOLO LAS PALABRAS CORRECTAS ESTAN CON UN 0
                 dropdowns = torch.ones_like(pickups) - pickups
                 if len(mask_pathid) > 0:
                     path_mask = torch.zeros(_B).to(self.target_prefix)

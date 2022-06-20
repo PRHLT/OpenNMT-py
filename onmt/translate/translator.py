@@ -13,7 +13,7 @@ import onmt.model_builder
 import onmt.inputters as inputters
 import onmt.decoders.ensemble
 from onmt.inputters.text_dataset import InferenceDataIterator
-from onmt.translate.beam_search import BeamSearch, BeamSearchLM
+from onmt.translate.beam_search import BeamSearch, BeamSearchLM, BeamSearchINMT
 from onmt.translate.greedy_search import GreedySearch, GreedySearchLM
 from onmt.utils.misc import tile, set_random_seed, report_matrix
 from onmt.utils.alignment import extract_alignment, build_align_pharaoh
@@ -998,6 +998,7 @@ class Translator(Inference):
 class INMTTranslator(Translator):
     def __init__(self, *args, **kwds):
         super().__init__(*args, **kwds)
+        self.last_word_idx = {}
         self.prefix = None
 
     @classmethod
@@ -1020,6 +1021,11 @@ class INMTTranslator(Translator):
         align_debug=False,
         phrase_table="",
     ):
+        new_word = False
+        if(prefix[0][-1] == ''):
+            prefix[0] = prefix[0][:-1]
+            new_word = True
+
         src_data = {
             "reader": self.src_reader,
             "data": src,
@@ -1058,10 +1064,69 @@ class INMTTranslator(Translator):
             phrase_table = {}
             for position, id in enumerate(batch.tgt[1:-1]):
                 if id == 0:
-                    phrase_table[position] = prefix[0].split()[position]
+                    word = prefix[0][position]
+                    phrase_table[position] = word
+
+        self.last_word_idx = {}
+        if not new_word:
+            last_word_pos = len(prefix[0])
+            last_word = prefix[0][-1]
+            len_last_word = len(last_word)
+            for idx, vocab in enumerate(self._tgt_vocab.itos):
+                if(vocab[:len_last_word]==last_word):
+                    if last_word_pos not in self.last_word_idx:
+                        self.last_word_idx[last_word_pos] = []
+                    self.last_word_idx[last_word_pos].append(idx)
 
         return self.translate(src, src_feats, tgt, batch_size, batch_type,
                               attn_debug, align_debug, phrase_table)
+
+    def translate_batch(self, batch, src_vocabs, attn_debug):
+        """Translate a batch of sentences."""
+        with torch.no_grad():
+            if self.sample_from_topk != 0 or self.sample_from_topp != 0:
+                decode_strategy = GreedySearch(
+                    pad=self._tgt_pad_idx,
+                    bos=self._tgt_bos_idx,
+                    eos=self._tgt_eos_idx,
+                    unk=self._tgt_unk_idx,
+                    batch_size=batch.batch_size,
+                    global_scorer=self.global_scorer,
+                    min_length=self.min_length,
+                    max_length=self.max_length,
+                    block_ngram_repeat=self.block_ngram_repeat,
+                    exclusion_tokens=self._exclusion_idxs,
+                    return_attention=attn_debug or self.replace_unk,
+                    sampling_temp=self.random_sampling_temp,
+                    keep_topk=self.sample_from_topk,
+                    keep_topp=self.sample_from_topp,
+                    beam_size=self.beam_size,
+                    ban_unk_token=self.ban_unk_token,
+                )
+            else:
+                # TODO: support these blacklisted features
+                assert not self.dump_beam
+                decode_strategy = BeamSearchINMT(
+                    self.beam_size,
+                    batch_size=batch.batch_size,
+                    pad=self._tgt_pad_idx,
+                    bos=self._tgt_bos_idx,
+                    eos=self._tgt_eos_idx,
+                    unk=self._tgt_unk_idx,
+                    n_best=self.n_best,
+                    global_scorer=self.global_scorer,
+                    min_length=self.min_length,
+                    max_length=self.max_length,
+                    return_attention=attn_debug or self.replace_unk,
+                    block_ngram_repeat=self.block_ngram_repeat,
+                    exclusion_tokens=self._exclusion_idxs,
+                    stepwise_penalty=self.stepwise_penalty,
+                    ratio=self.ratio,
+                    ban_unk_token=self.ban_unk_token,
+                )
+            return self._translate_batch_with_strategy(
+                batch, src_vocabs, decode_strategy
+            )
 
     def _translate_batch_with_strategy(
         self, batch, src_vocabs, decode_strategy
@@ -1126,7 +1191,7 @@ class INMTTranslator(Translator):
                 batch_offset=decode_strategy.batch_offset,
             )
 
-            decode_strategy.advance(log_probs, attn)
+            decode_strategy.advance(log_probs, attn, self.last_word_idx)
             any_finished = decode_strategy.is_finished.any()
             if any_finished:
                 decode_strategy.update_finished()

@@ -345,6 +345,119 @@ class BeamSearch(BeamSearchBase):
         return fn_map_state, memory_bank, self.memory_lengths, src_map
 
 
+class BeamSearchINMT(BeamSearch):
+    """
+        Beam Search for Interactive Neural Machine Translation
+    """
+
+    def advance(self, log_probs, attn, last_word):
+        vocab_size = log_probs.size(-1)
+
+        # using integer division to get an integer _B without casting
+        _B = log_probs.shape[0] // self.beam_size
+
+        if self._stepwise_cov_pen and self._prev_penalty is not None:
+            self.topk_log_probs += self._prev_penalty
+            self.topk_log_probs -= self.global_scorer.cov_penalty(
+                self._coverage + attn, self.global_scorer.beta).view(
+                _B, self.beam_size)
+
+        # force the output to be longer than self.min_length
+        step = len(self)
+        self.ensure_min_length(log_probs)
+        self.ensure_unk_removed(log_probs)
+
+        # Multiply probs by the beam probability.
+        log_probs += self.topk_log_probs.view(_B * self.beam_size, 1)
+
+        # if the sequence ends now, then the penalty is the current
+        # length + 1, to include the EOS token
+        length_penalty = self.global_scorer.length_penalty(
+            step + 1, alpha=self.global_scorer.alpha)
+
+        curr_scores = log_probs / length_penalty
+
+        # Avoid any direction that would repeat unwanted ngrams
+        self.block_ngram_repeats(curr_scores)
+
+        # Pick up candidate token by curr_scores
+        self._pick(curr_scores, last_word, out=(self.topk_scores, self.topk_ids))
+
+        # Recover log probs.
+        # Length penalty is just a scalar. It doesn't matter if it's applied
+        # before or after the topk.
+        torch.mul(self.topk_scores, length_penalty, out=self.topk_log_probs)
+
+        # Resolve beam origin and map to batch index flat representation.
+        self._batch_index = self.topk_ids // vocab_size
+        self._batch_index += self._beam_offset[:_B].unsqueeze(1)
+        self.select_indices = self._batch_index.view(_B * self.beam_size)
+        self.topk_ids.fmod_(vocab_size)  # resolve true word ids
+
+        # Append last prediction.
+        self.alive_seq = torch.cat(
+            [self.alive_seq.index_select(0, self.select_indices),
+             self.topk_ids.view(_B * self.beam_size, 1)], -1)
+
+        self.maybe_update_forbidden_tokens()
+
+        if self.return_attention or self._cov_pen:
+            current_attn = attn.index_select(1, self.select_indices)
+            if step == 1:
+                self.alive_attn = current_attn
+                # update global state (step == 1)
+                if self._cov_pen:  # coverage penalty
+                    self._prev_penalty = torch.zeros_like(self.topk_log_probs)
+                    self._coverage = current_attn
+            else:
+                self.alive_attn = self.alive_attn.index_select(
+                    1, self.select_indices)
+                self.alive_attn = torch.cat([self.alive_attn, current_attn], 0)
+                # update global state (step > 1)
+                if self._cov_pen:
+                    self._coverage = self._coverage.index_select(
+                        1, self.select_indices)
+                    self._coverage += current_attn
+                    self._prev_penalty = self.global_scorer.cov_penalty(
+                        self._coverage, beta=self.global_scorer.beta).view(
+                            _B, self.beam_size)
+
+        if self._vanilla_cov_pen:
+            # shape: (batch_size x beam_size, 1)
+            cov_penalty = self.global_scorer.cov_penalty(
+                self._coverage,
+                beta=self.global_scorer.beta)
+            self.topk_scores -= cov_penalty.view(_B, self.beam_size).float()
+
+        self.is_finished = self.topk_ids.eq(self.eos)
+        self.ensure_max_length()
+
+    def _pick(self, log_probs, last_word, out=None):
+        """Take a token pick decision for a step.
+        Args:
+            log_probs (FloatTensor): (B * beam_size, vocab_size)
+            out (Tensor, LongTensor): output buffers to reuse, optional.
+        Returns:
+            topk_scores (FloatTensor): (B, beam_size)
+            topk_ids (LongTensor): (B, beam_size)
+        """
+        step = len(self)
+        vocab_size = log_probs.size(-1)
+        # maybe fix some prediction at this step by modifying log_probs
+        if step in last_word:
+            log_probs = self.character_prefixing(log_probs, last_word)
+        else:
+            log_probs = self.target_prefixing(log_probs)
+
+        # Flatten probs into a list of possibilities.
+        curr_scores = log_probs.reshape(-1, self.beam_size * vocab_size)
+        if out is not None:
+            torch.topk(curr_scores, self.beam_size, dim=-1, out=out)
+            return
+        topk_scores, topk_ids = torch.topk(curr_scores, self.beam_size, dim=-1)
+        return topk_scores, topk_ids
+
+
 class BeamSearchLM(BeamSearchBase):
     """
         Beam search for language/decoder only models
