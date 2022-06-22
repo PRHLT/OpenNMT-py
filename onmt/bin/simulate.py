@@ -85,7 +85,7 @@ def get_character_level_corrections_prefix(hyp, ref):
     return prefix, correction
 
 
-def character_level_simulate(opt):
+def character_level_prefix_based_simulation(opt):
     ArgumentParser.validate_translate_opts(opt)
     ArgumentParser.validate_simulate_opts(opt)
     ArgumentParser.validate_inmt_opts(opt)
@@ -182,7 +182,7 @@ def get_prefix(hyp, ref):
     return prefix, correction
 
 
-def simulate(opt):
+def prefix_based_simulation(opt):
     ArgumentParser.validate_translate_opts(opt)
     ArgumentParser.validate_simulate_opts(opt)
     ArgumentParser.validate_inmt_opts(opt)
@@ -225,8 +225,8 @@ def simulate(opt):
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
 
             word_strokes_ = 1
-            mouse_actions_ = (1 if len(feedback) != len(old_feedback) +1
-                                else 0)
+            mouse_actions_ = (1 if len(feedback) != len(old_feedback) + 1
+                              else 0)
             character_strokes_ = len(correction)
 
             if correction == '':  # End of sentence needed.
@@ -283,9 +283,9 @@ def main():
     opt = parser.parse_args()
 
     if opt.character_level:
-        character_level_simulate(opt)
+        character_level_prefix_based_simulation(opt)
     else:
-        simulate(opt)
+        prefix_based_simulation(opt)
 
 
 if __name__ == "__main__":
