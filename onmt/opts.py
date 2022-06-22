@@ -900,7 +900,8 @@ def inmt_simulation_opts(parser, dynamic=False):
               help="Perform the simulation generating new hypothesis each time\
                the user types a character.")
     group.add('--segment', '-segment', action='store_true',
-              help="Perform the simulation based on segments instead than prefix")
+              help="Perform the simulation based on segments instead \
+              of a prefix.")
 
 
 class StoreLoggingLevelAction(configargparse.Action):
