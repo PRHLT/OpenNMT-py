@@ -29,13 +29,14 @@ def longest_common_substring(s1, s2):
                     y_longest = y
             else:
                 m[x][y] = 0
-    return s1[x_longest - longest: x_longest], x_longest - longest, y_longest - longest
+    return (s1[x_longest - longest: x_longest], x_longest - longest,
+            y_longest - longest)
 
 
-def find_isles(s1, s2, s1_offset=0, s2_offset=0):
+def find_segments(s1, s2, s1_offset=0, s2_offset=0):
     if s1 == [] or s2 == []:
         return [], []
-    
+
     com, s1_start, s2_start = longest_common_substring(s1, s2)
     len_common = len(com)
     if len_common == 0:
@@ -43,13 +44,14 @@ def find_isles(s1, s2, s1_offset=0, s2_offset=0):
 
     s1_before = s1[:s1_start]
     s2_before = s2[:s2_start]
-    s1_after  = s1[s1_start+len_common:]
-    s2_after  = s2[s2_start+len_common:]
-    before = find_isles(s1_before, s2_before, s1_offset, s2_offset) 
-    after  = find_isles(s1_after, s2_after, s1_offset+s1_start+len_common, s2_offset+s2_start+len_common)
+    s1_after = s1[s1_start+len_common:]
+    s2_after = s2[s2_start+len_common:]
+    before = find_segments(s1_before, s2_before, s1_offset, s2_offset)
+    after = find_segments(s1_after, s2_after, s1_offset+s1_start+len_common,
+                          s2_offset+s2_start+len_common)
 
-    return ( before[0] + [s1_offset+s1_start, com] + after[0],
-             before[1] + [s2_offset+s2_start, com] + after[1])
+    return (before[0] + [s1_offset+s1_start, com] + after[0],
+            before[1] + [s2_offset+s2_start, com] + after[1])
 
 
 def get_character_level_corrections_prefix(hyp, ref):
@@ -124,8 +126,7 @@ def character_level_simulate(opt):
             feedback, correction = get_character_level_corrections_prefix(
                 hyp[0][0].split(), ref.split())
 
-            mouse_actions_ = (1 if len(feedback) != len(old_feedback)+1
-                                else 0)
+            mouse_actions_ = (1 if len(feedback) != len(old_feedback)+1 else 0)
             character_strokes_ = 1
 
             if correction == '':  # End of sentence needed.
@@ -222,8 +223,6 @@ def simulate(opt):
         character_strokes = 0
         while hyp[0][0] != ref and not eos:
             feedback, correction = get_prefix(hyp[0][0].split(), ref.split())
-            isles = find_isles(hyp[0][0].split(), ref.split())
-            print(isles)
 
             word_strokes_ = 1
             mouse_actions_ = (1 if len(feedback) != len(old_feedback) +1
