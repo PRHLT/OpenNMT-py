@@ -31,3 +31,8 @@ class ModelTask(object):
     LANGUAGE_MODEL = 'lm'
     SEQ2SEQ = 'seq2seq'
     INMT = 'inmt'
+
+
+class SegmentType(object):
+    GENERIC = 'generic'
+    TO_COMPLETE = 'to_complete'
