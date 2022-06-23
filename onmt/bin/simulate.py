@@ -80,6 +80,13 @@ def get_segments(s1, s2, s1_offset=0, s2_offset=0):
             before[1] + [s2_offset+s2_start, com] + after[1])
 
 
+def compute_mouse_actions(segments):
+    actions = 0
+    for segment in segments:
+        actions += 2 if len(segment[-1]) > 1 else 1
+    return actions
+
+
 def segment_based_simulation(opt):
     ArgumentParser.validate_translate_opts(opt)
     ArgumentParser.validate_simulate_opts(opt)
@@ -104,7 +111,6 @@ def segment_based_simulation(opt):
         translator.prefix = None
         score, hyp = translator.translate(src=[src], batch_size=1)
 
-        old_feedback = ''
         eos = False
 
         if opt.inmt_verbose:
@@ -126,21 +132,22 @@ def segment_based_simulation(opt):
             segment_list = generate_segment_list(feedback, correction)
 
             word_strokes_ = 1
-            mouse_actions_ = (1 if len(feedback) != len(old_feedback) + 1
-                              else 0)
-            character_strokes_ = len(correction)
+            mouse_actions_ = compute_mouse_actions(feedback)
+            character_strokes_ = 1 if correction == '' else len(correction[0])
 
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
-                character_strokes_ = 1
                 eos = True
             score, hyp = translator.segment_based_inmt(
                 src=[src],
                 segment=[segment_list]
                 )
             if opt.inmt_verbose:
-                print("Prefix: {0}".format(feedback))
-                print("Correction: {0}".format(correction.replace('@@', '')))
+                print("Segments: {0}".format('\t'.join([segment[-1]
+                                                        for segment
+                                                        in feedback])))
+                print("Correction: {0}".format(correction[0]
+                                               .replace('@@', '')))
                 print("Hypothesis {1}: {0}"
                       .format(hyp[0][0].replace('@@ ', ''), cont))
                 print('~~~~~~~~~~~~~~~~~~')
@@ -152,7 +159,6 @@ def segment_based_simulation(opt):
             mouse_actions += mouse_actions_
             word_strokes += word_strokes_
             character_strokes += character_strokes_
-            old_feedback = feedback
 
         if opt.inmt_verbose:
             print('------------------\n')
