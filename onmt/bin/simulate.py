@@ -6,6 +6,7 @@ from onmt.translate.translator import build_translator
 
 import onmt.opts as opts
 from onmt.utils.parse import ArgumentParser
+from onmt.constants import SegmentType
 
 
 def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
@@ -14,6 +15,31 @@ def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
     print('MAR: {0}'.format(round(mouse_actions / characters * 100, 1)))
     print('WSR: {0}'.format(round(word_strokes / words * 100, 1)))
     print('KSR: {0}'.format(round(character_strokes / characters * 100, 1)))
+
+
+def generate_segment_list(feedback, correction):
+    segments = []
+    corrected = True if correction == '' else False
+    for segment in feedback:
+        if not corrected and correction[1] < segment[0]:
+            segments.append[correction[0], correction[-1]]
+        segments.append(segment[-1], SegmentType.GENERIC)
+    return segments
+
+
+def get_correction(character_level, hyp, ref):
+    for n in range(len(ref)):
+        if n >= len(hyp):
+            return ([ref[n][0], n, SegmentType.TO_COMPLETE] if character_level
+                    else [ref[n], n, SegmentType.GENERIC])
+        if ref[n] != hyp[n]:
+            if not character_level:
+                return [ref[n], n, SegmentType.GENERIC]
+            for m in range(len(ref[n])):
+                if m >= len(hyp[n]) or hyp[n][m] != ref[n][m]:
+                    return [ref[n][:m], n, SegmentType.TO_COMPLETE]
+            return [ref[n], n, SegmentType.GENERIC]
+    return ''
 
 
 def longest_common_substring(s1, s2):
@@ -33,7 +59,7 @@ def longest_common_substring(s1, s2):
             y_longest - longest)
 
 
-def find_segments(s1, s2, s1_offset=0, s2_offset=0):
+def get_segments(s1, s2, s1_offset=0, s2_offset=0):
     if s1 == [] or s2 == []:
         return [], []
 
@@ -46,12 +72,101 @@ def find_segments(s1, s2, s1_offset=0, s2_offset=0):
     s2_before = s2[:s2_start]
     s1_after = s1[s1_start+len_common:]
     s2_after = s2[s2_start+len_common:]
-    before = find_segments(s1_before, s2_before, s1_offset, s2_offset)
-    after = find_segments(s1_after, s2_after, s1_offset+s1_start+len_common,
-                          s2_offset+s2_start+len_common)
+    before = get_segments(s1_before, s2_before, s1_offset, s2_offset)
+    after = get_segments(s1_after, s2_after, s1_offset+s1_start+len_common,
+                         s2_offset+s2_start+len_common)
 
     return (before[0] + [s1_offset+s1_start, com] + after[0],
             before[1] + [s2_offset+s2_start, com] + after[1])
+
+
+def segment_based_simulation(opt):
+    ArgumentParser.validate_translate_opts(opt)
+    ArgumentParser.validate_simulate_opts(opt)
+    ArgumentParser.validate_inmt_opts(opt)
+    logger = init_logger(opt.log_file)
+
+    translator = build_translator(opt, logger=logger, report_score=True)
+
+    with open(opt.src, "rb") as f:
+        srcs = f.readlines()
+    with open(opt.tgt, "rb") as f:
+        refs = f.readlines()
+
+    total_mouse_actions = 0
+    total_word_strokes = 0
+    total_character_strokes = 0
+
+    for n in range(len(srcs)):
+        logger.info("Processing sentence %d." % n)
+        src = srcs[n]
+        ref = refs[n].decode('utf-8').strip()
+        translator.prefix = None
+        score, hyp = translator.translate(src=[src], batch_size=1)
+
+        old_feedback = ''
+        eos = False
+
+        if opt.inmt_verbose:
+            print("Source: {0}".format(src.decode('utf-8').strip()
+                                       .replace('@@ ', '')))
+            print("Reference: {0}".format(ref.replace('@@ ', '')))
+            print("Initial hypothesis: {0}".format(hyp[0][0]
+                                                   .replace('@@ ', '')))
+            print()
+
+        cont = 1
+        mouse_actions = 0
+        word_strokes = 0
+        character_strokes = 0
+        while hyp[0][0] != ref and not eos:
+            feedback, _ = get_segments(hyp[0][0].split(), ref.split())
+            correction = get_correction(opt.character_level, hyp[0][0].split(),
+                                        ref.split())
+            segment_list = generate_segment_list(feedback, correction)
+
+            word_strokes_ = 1
+            mouse_actions_ = (1 if len(feedback) != len(old_feedback) + 1
+                              else 0)
+            character_strokes_ = len(correction)
+
+            if correction == '':  # End of sentence needed.
+                correction = 'EoS'
+                character_strokes_ = 1
+                eos = True
+            score, hyp = translator.segment_based_inmt(
+                src=[src],
+                segment=[segment_list]
+                )
+            if opt.inmt_verbose:
+                print("Prefix: {0}".format(feedback))
+                print("Correction: {0}".format(correction.replace('@@', '')))
+                print("Hypothesis {1}: {0}"
+                      .format(hyp[0][0].replace('@@ ', ''), cont))
+                print('~~~~~~~~~~~~~~~~~~')
+                print('Mouse actions: {0}'.format(mouse_actions_))
+                print('Word strokes: {0}'.format(word_strokes_))
+                print('Character strokes: {0}'.format(character_strokes_))
+                print()
+            cont += 1
+            mouse_actions += mouse_actions_
+            word_strokes += word_strokes_
+            character_strokes += character_strokes_
+            old_feedback = feedback
+
+        if opt.inmt_verbose:
+            print('------------------\n')
+            print('Total mouse actions: {0}'.format(mouse_actions))
+            print('Total word strokes: {0}'.format(word_strokes))
+            print('Total character strokes: {0}'.format(character_strokes))
+            print()
+            print('-------------------------------------------\n')
+        total_mouse_actions += mouse_actions
+        total_word_strokes += word_strokes
+        total_character_strokes += character_strokes
+
+    compute_metrics(refs, total_mouse_actions,
+                    total_word_strokes, total_character_strokes)
 
 
 def get_character_level_corrections_prefix(hyp, ref):
@@ -282,7 +397,10 @@ def main():
 
     opt = parser.parse_args()
 
-    if opt.character_level:
+    if opt.segment:
+        segment_based_simulation(opt)
+
+    elif opt.character_level:
         character_level_prefix_based_simulation(opt)
     else:
         prefix_based_simulation(opt)
