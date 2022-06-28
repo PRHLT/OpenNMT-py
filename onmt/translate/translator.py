@@ -7,6 +7,7 @@ import numpy as np
 from itertools import count, zip_longest
 
 import torch
+import copy
 
 from onmt.constants import DefaultTokens
 import onmt.model_builder
@@ -18,7 +19,7 @@ from onmt.translate.greedy_search import GreedySearch, GreedySearchLM
 from onmt.utils.misc import tile, set_random_seed, report_matrix
 from onmt.utils.alignment import extract_alignment, build_align_pharaoh
 from onmt.modules.copy_generator import collapse_copy_scores
-from onmt.constants import ModelTask
+from onmt.constants import ModelTask, SegmentType
 
 
 def build_translator(opt, report_score=True, logger=None, out_file=None):
@@ -1000,6 +1001,7 @@ class INMTTranslator(Translator):
         super().__init__(*args, **kwds)
         self.last_word_idx = {}
         self.prefix = None
+        self.segments = []
 
     @classmethod
     def validate_task(cls, task):
@@ -1008,6 +1010,98 @@ class INMTTranslator(Translator):
                 f"Translator does not support task {task}."
                 f" Tasks supported: {ModelTask.INMT}"
             )
+
+    def segment_based_inmt(
+        self,
+        src,
+        segments,
+        src_feats={},
+        tgt=None,
+        batch_size=1,
+        batch_type="sents",
+        attn_debug=False,
+        align_debug=False,
+        phrase_table="",
+        ):
+
+        src_data = {
+            "reader": self.src_reader,
+            "data": src,
+            "features": src_feats
+        }
+        tgt_data = {
+            "reader": self.tgt_reader,
+            "data": tgt,
+            "features": {}
+        }
+        _readers, _data = inputters.Dataset.config(
+            [("src", src_data), ("tgt", tgt_data)]
+        )
+
+        data = inputters.Dataset(
+            self.fields,
+            readers=_readers,
+            data=_data,
+            sort_key=inputters.str2sortkey[self.data_type],
+            filter_pred=self._filter_pred,
+        )
+
+        self.last_word_idx = {}
+        phrase_table = {}
+        self.prefix = None
+
+        self.segments = copy.deepcopy(segments)
+        tgt_vocab = self._tgt_vocab.itos
+        # Procesamos cada segmento
+        for segment in self.segments:
+            # SEGMENTO GENERICO
+            if segment[1] == SegmentType.GENERIC:
+                segment_com = segment[0]
+                segment_com_idx = []
+                segment_offset = 1 if segment_com[0]=='<s>'else 0
+                for idx, word in enumerate(segment_com):
+                    segment_com_idx.append(0)
+                    for word_idx, vocab_word in enumerate(tgt_vocab):
+                        if word == vocab_word:
+                            segment_com_idx[idx] = word_idx
+                            break
+                    if segment_com_idx[idx] == 0:
+                        phrase_table[idx-segment_offset] = word
+                segment[0] = segment_com_idx
+            # SEGMENTO PARA COMPLETAR
+            elif segment[1] == SegmentType.TO_COMPLETE:
+                segment_com = segment[0]
+                segment_com_idx = []
+                segment_offset = 1 if segment_com[0]=='<s>'else 0
+                for idx, word in enumerate(segment_com[:-1]):
+                    segment_com_idx.append(0)
+                    for word_idx, vocab_word in enumerate(tgt_vocab):
+                        if word == vocab_word:
+                            segment_com_idx[idx] = word_idx
+                            break
+                    if segment_com_idx[idx] == 0:
+                        phrase_table[idx-segment_offset] = word
+                segment[0] = segment_com_idx
+                # Anyadimos la ultima palabra que es la que hay
+                # que completar
+                segment_idx = []
+                last_word = segment_com[-1]
+                for idx, vocab in enumerate(tgt_vocab):
+                    if(vocab[:len(last_word)]==last_word):
+                        segment_idx.append(idx)
+                segment[0].append(segment_idx)
+
+        if self.segments[0][0][0] == 2:
+            first_segment = self.segments.pop(0)
+            type_segment = first_segment[1]
+            if type_segment==SegmentType.GENERIC:
+                self.prefix = torch.tensor([[[i]] for i in first_segment[0][:]])
+            elif type_segment==SegmentType.TO_COMPLETE:
+                self.prefix = torch.tensor([[[i]] for i in first_segment[0][:-1]])
+                self.last_word_idx[len(self.prefix)] = first_segment[0][-1]
+
+        return self.translate(src, src_feats, tgt, batch_size, batch_type,
+            attn_debug, align_debug, phrase_table)
 
     def prefix_based_inmt(
         self,
@@ -1020,7 +1114,7 @@ class INMTTranslator(Translator):
         attn_debug=False,
         align_debug=False,
         phrase_table="",
-    ):
+        ):
         new_word = False
         if(prefix[0][-1] == ''):
             prefix[0] = prefix[0][:-1]
@@ -1130,7 +1224,7 @@ class INMTTranslator(Translator):
 
     def _translate_batch_with_strategy(
         self, batch, src_vocabs, decode_strategy
-    ):
+        ):
         """Translate a batch of sentences step by step using cache.
 
         Args:
@@ -1165,6 +1259,7 @@ class INMTTranslator(Translator):
         # (2) prep decode_strategy. Possibly repeat src objects.
         src_map = batch.src_map if use_src_map else None
         target_prefix = self.prefix
+
         (
             fn_map_state,
             memory_bank,
@@ -1176,8 +1271,212 @@ class INMTTranslator(Translator):
         if fn_map_state is not None:
             self.model.decoder.map_state(fn_map_state)
 
+        def _decode_forward_translations(step_start=0, next_segment=None):
+            # Hacemos una copia de diferentes variables para no editarlas y que luego el
+            # modelo siga funcionando como si no hubiera ocurrido este paso
+            copy_decode_strategy = copy.deepcopy(decode_strategy)
+            copy_memory_lengths = copy.deepcopy(memory_lengths)
+            copy_memory_bank = copy.deepcopy(memory_bank)
+            copy_src_map = copy.deepcopy(src_map)
+            model_state = copy.deepcopy(self.model.decoder.state)
+
+            # Numero maximo de pasos en el futuro que se va a realizar
+            max_N = 5
+
+            # Preparamos una variable para guardar las traducciones y otra para los scores
+            forward_hyp_trans = []
+            forward_hyp_score = [] 
+
+            for step in range(max_N):
+                decoder_input = copy_decode_strategy.current_predictions.view(1, -1, 1)
+
+                log_probs, attn = self._decode_and_generate(
+                    decoder_input,
+                    copy_memory_bank,
+                    batch,
+                    src_vocabs,
+                    memory_lengths=copy_memory_lengths,
+                    src_map=copy_src_map,
+                    step=step+step_start,
+                    batch_offset=copy_decode_strategy.batch_offset,
+                )
+
+                #print(log_probs[:,128])
+
+                copy_decode_strategy.advance(log_probs, attn, self.last_word_idx)
+                
+                any_finished = copy_decode_strategy.is_finished.any()
+                if any_finished:
+                    copy_decode_strategy.update_finished()
+                    if copy_decode_strategy.done:
+                        break
+
+                select_indices = copy_decode_strategy.select_indices
+                
+                if any_finished:
+                    # Reorder states.
+                    if isinstance(copy_memory_bank, tuple):
+                        copy_memory_bank = tuple(
+                            x.index_select(1, select_indices) for x in copy_memory_bank
+                        )
+                    else:
+                        copy_memory_bank = copy_memory_bank.index_select(1, select_indices)
+
+                    copy_memory_lengths = copy_memory_lengths.index_select(0, select_indices)
+
+                    if copy_src_map is not None:
+                        copy_src_map = copy_src_map.index_select(1, select_indices)
+
+                if parallel_paths > 1 or any_finished:
+                    self.model.decoder.map_state(
+                        lambda state, dim: state.index_select(dim, select_indices)
+                    )
+
+                mask = [False]*parallel_paths
+                if next_segment != None and next_segment[1] == SegmentType.GENERIC:
+                    new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
+                    new_words_list = np.asarray(new_words_list)
+                    mask = new_words_list==next_segment[0][0]
+
+                elif next_segment != None and next_segment[1] == SegmentType.TO_COMPLETE:
+                    new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
+                    new_words_list = np.asarray(new_words_list)
+                    next_word = next_segment[0][0]
+
+                    if isinstance(next_word, list):
+                        for possible_word in next_word:
+                            current_mask = new_words_list==possible_word
+                            mask = np.logical_or(mask, current_mask)
+                    else:
+                        mask = new_words_list==next_word
+
+                if True in mask:
+                    forward_hyp_trans = [copy_decode_strategy.alive_seq[mask,:]]
+                    forward_hyp_score = [copy_decode_strategy.topk_scores[:,mask]]
+                    break
+
+
+                forward_hyp_trans.append(copy_decode_strategy.alive_seq)
+                forward_hyp_score.append(copy.copy(copy_decode_strategy.topk_scores))
+
+            # Dejamos el modelo tal y como estaba
+            self.model.decoder.state = model_state
+
+            #for step, (scores, trans) in enumerate(zip(forward_hyp_score, forward_hyp_trans)):
+            #    print(scores, trans)
+            #    print(scores/(step+1))
+            #    print(scores)
+            #    print(trans)
+            return forward_hyp_trans, forward_hyp_score
+
         # (3) Begin decoding step by step:
+        #_decode_forward_translations()
+        # PRUEBA
+        #segments = [[25,26,27], [400,400,400]]
+
         for step in range(decode_strategy.max_length):
+
+            # Miramos cual es la longitud del prefijo
+            len_prefix = -1
+            if decode_strategy.target_prefix is not None:
+                len_prefix = decode_strategy.target_prefix.size(1) -1
+
+            # Solo vamos a probar a añadir un segmento si se cumplen dos casos
+            # No quedan palabras en el prefijo a añadir
+            # Aun quedan segmentos
+            if step > len_prefix and len(self.segments) > 0:
+                next_segment = self.segments.pop(0)
+                next_segment_txt = next_segment[0]
+                next_segment_typ = next_segment[1]
+                forward_hyp_trans, forward_hyp_score = _decode_forward_translations(step, next_segment)
+
+                # Seleccionamos aquella traduccion de mayor calidad
+                best_hyp = []
+                max_prob = -np.Inf
+                for n_word, beam_scores in enumerate(forward_hyp_score):
+                    # Normalizamos el score
+                    beam_scores = beam_scores[0]/(n_word+step+1)
+                    for idx, score in enumerate(beam_scores):
+                        if score > max_prob:
+                            max_prob = score
+                            best_hyp = forward_hyp_trans[n_word][idx].tolist()
+
+                # Nos quedamos con la parte de la traducción que es nueva
+                best_hyp = best_hyp[step+1:]
+
+                ##==========================
+                if next_segment_typ == SegmentType.GENERIC:
+                    # Miramos en que posicion de la traduccion coincide con el segmento
+                    pos_next_segment = -1
+                    len_next_segment = len(next_segment_txt)
+                    for pos in range(len(best_hyp)):
+                        partial_best_hyp = best_hyp[pos:pos+len_next_segment]
+                        partial_next_segment = next_segment_txt[:len(partial_best_hyp)]
+
+                        if partial_best_hyp == partial_next_segment:
+                            pos_next_segment = pos
+                            break
+                    #print(best_hyp, next_segment)
+                    #print('POS {}'.format(pos_next_segment))
+
+                    if pos_next_segment == -1:
+                        new_prefix = best_hyp + next_segment_txt
+                    else:
+                        new_prefix = best_hyp[:pos_next_segment] + next_segment_txt
+                    new_prefix = new_prefix + [3]
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+
+                elif next_segment_typ == SegmentType.TO_COMPLETE:
+                    print(best_hyp)
+                    # Miramos en que posicion se encuentra unas de las posibles palabras
+                    pos_next_segment = -1
+                    len_next_segment = len(next_segment_txt)-1 #No vamos a tener en cuenta la longitud de la palabra a completar
+                    # Solamente contamos con la palabra a añadir
+                    if len(next_segment_txt) == 1:
+                        for pos, word in enumerate(best_hyp):
+                            if word in next_segment_txt[-1]:
+                                pos_next_segment = pos
+                    # Tenemos un pequeño prefijo de palabras
+                    else:
+                        for pos in range(len(best_hyp)):
+                            partial_best_hyp = best_hyp[pos:pos+len_next_segment]
+                            partial_next_segment = next_segment_txt[:len(partial_best_hyp)]
+
+                            if partial_best_hyp == partial_next_segment:
+                                pos_next_segment = pos
+                                break
+
+                    if pos_next_segment == -1:
+                        new_prefix = best_hyp + next_segment_txt[:-1] #+ next_segment_txt[-1][0]
+                    else:
+                        new_prefix = best_hyp[:pos_next_segment] + next_segment_txt[:-1] #+ next_segment_txt[-1][0] 
+                    self.last_word_idx[step+len(new_prefix)+1] = next_segment_txt[-1]
+
+                    new_prefix = new_prefix + [3]
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+                    #print(self.last_word_idx)
+                    #print(decode_strategy.target_prefix)
+
+                # CASOS
+                # NO APARECE
+                # APARECE COMPLETO
+                # APARECE PARCIAL
+
+
+            #print(decode_strategy.target_prefix)
+            #print(len_prefix)
+            #print()
+            #print(decode_strategy.target_prefix)
+            #decode_strategy.maybe_update_target_prefix(torch.tensor([0,1]))
+            #if step == 4:
+            #    print('FUTURE START')
+            #    _decode_forward_translations(4)
+            #    print('FUTURE END')
+            #   decode_strategy.maybe_update_next_target_tokens(4, [7,45, 32, 3])
+            #print(decode_strategy.target_prefix)
+
             decoder_input = decode_strategy.current_predictions.view(1, -1, 1)
 
             log_probs, attn = self._decode_and_generate(
@@ -1219,6 +1518,10 @@ class INMTTranslator(Translator):
                     lambda state, dim: state.index_select(dim, select_indices)
                 )
 
+            #print(decode_strategy.topk_scores/(step+1))
+            #print(decode_strategy.topk_scores)
+            #print(decode_strategy.alive_seq[0])
+
         return self.report_results(
             gold_score,
             batch,
@@ -1241,7 +1544,7 @@ class INMTTranslator(Translator):
         phrase_table="",
         dynamic=False,
         transform=None
-    ):
+        ):
 
         data_iter = inputters.OrderedIterator(
             dataset=data,

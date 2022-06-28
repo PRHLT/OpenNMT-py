@@ -19,26 +19,66 @@ def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
 
 def generate_segment_list(feedback, correction):
     segments = []
+    end_pos  = []
     corrected = True if correction == '' else False
-    for segment in feedback:
-        if not corrected and correction[1] < segment[0]:
-            segments.append[correction[0], correction[-1]]
-        segments.append(segment[-1], SegmentType.GENERIC)
+
+    def add_correction_segment(new_segment, start_pos):
+        if (len(segments) > 0 and 
+            segments[-1][1]==SegmentType.GENERIC and 
+            new_segment[1]==SegmentType.GENERIC):
+            if start_pos == (end_pos[-1]):
+                if len(segments[-1][0]) == end_pos[-1]:
+                    segments[-1][0].insert(0, '<s>')
+                segments[-1][0] += new_segment[0]
+                return
+        elif (len(segments) > 0 and
+              new_segment[1]==SegmentType.TO_COMPLETE):
+            if start_pos == (end_pos[-1]):
+                if len(segments[-1][0]) == end_pos[-1]:
+                    segments[-1][0].insert(0, '<s>')
+                segments[-1][0] += new_segment[0]
+                segments[-1][1] = SegmentType.TO_COMPLETE
+                return
+
+        if start_pos == 0:
+            new_segment[0].insert(0, '<s>')
+
+        segments.append(new_segment)
+        end_pos.append(start_pos+len(new_segment[0]))
+
+    for segment in feedback:   
+        if not corrected and correction[0] <= segment[0]:
+            n_segment = [correction[1], correction[2]]
+            add_correction_segment(n_segment, correction[0])
+            corrected = True
+
+        n_segment = [segment[1], SegmentType.GENERIC]
+        segments.append(n_segment)
+        end_pos.append(segment[0]+len(segment[1]))
+
+    if not corrected:
+        n_segment = [correction[1], correction[2]]
+        add_correction_segment(n_segment, correction[0])
+
     return segments
 
 
 def get_correction(character_level, hyp, ref):
     for n in range(len(ref)):
         if n >= len(hyp):
-            return ([ref[n][0], n, SegmentType.TO_COMPLETE] if character_level
-                    else [ref[n], n, SegmentType.GENERIC])
+            return ([n, [ref[n][0]], SegmentType.TO_COMPLETE] if character_level
+                    else [n, [ref[n]], SegmentType.GENERIC])
         if ref[n] != hyp[n]:
             if not character_level:
-                return [ref[n], n, SegmentType.GENERIC]
+                return [n, [ref[n]], SegmentType.GENERIC]
             for m in range(len(ref[n])):
                 if m >= len(hyp[n]) or hyp[n][m] != ref[n][m]:
-                    return [ref[n][:m], n, SegmentType.TO_COMPLETE]
-            return [ref[n], n, SegmentType.GENERIC]
+                    chars = ref[n][:m+1]
+                    if chars[-1] == '@':
+                        chars += '@'
+                        return [n, [chars], SegmentType.GENERIC]
+                    return [n, [chars], SegmentType.TO_COMPLETE]
+            return [n, [ref[n]], SegmentType.GENERIC]
     return ''
 
 
@@ -69,15 +109,15 @@ def get_segments(s1, s2, s1_offset=0, s2_offset=0):
         return [], []
 
     s1_before = s1[:s1_start]
-    s2_before = s2[:s2_start]
+    s2_before = s2#[:s2_start]
     s1_after = s1[s1_start+len_common:]
-    s2_after = s2[s2_start+len_common:]
+    s2_after = s2#[s2_start+len_common:]
     before = get_segments(s1_before, s2_before, s1_offset, s2_offset)
     after = get_segments(s1_after, s2_after, s1_offset+s1_start+len_common,
                          s2_offset+s2_start+len_common)
 
-    return (before[0] + [s1_offset+s1_start, com] + after[0],
-            before[1] + [s2_offset+s2_start, com] + after[1])
+    return (before[0] + [[s1_offset+s1_start, com]] + after[0],
+            before[1] + [[s2_offset+s2_start, com]] + after[1])
 
 
 def compute_mouse_actions(segments):
@@ -126,30 +166,38 @@ def segment_based_simulation(opt):
         word_strokes = 0
         character_strokes = 0
         while hyp[0][0] != ref and not eos:
+
             feedback, _ = get_segments(hyp[0][0].split(), ref.split())
+            print(feedback)
             correction = get_correction(opt.character_level, hyp[0][0].split(),
                                         ref.split())
+            print(correction)
             segment_list = generate_segment_list(feedback, correction)
+            print(segment_list)
 
             word_strokes_ = 1
             mouse_actions_ = compute_mouse_actions(feedback)
-            character_strokes_ = 1 if correction == '' else len(correction[0])
+            character_strokes_ = 1 if correction == '' else len(correction[1])
 
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
                 eos = True
             score, hyp = translator.segment_based_inmt(
                 src=[src],
-                segment=[segment_list]
+                segments=segment_list
                 )
             if opt.inmt_verbose:
-                print("Segments: {0}".format('\t'.join([segment[-1]
-                                                        for segment
-                                                        in feedback])))
-                print("Correction: {0}".format(correction[0]
-                                               .replace('@@', '')))
+                print("Segments: {0}".format('\t'.join([' '.join(segment[-1]) 
+                                                for segment in feedback])))
+                #print("Correction: {0}".format(''.join(correction[1])
+                #                               .replace('@@', '')))
+                #print("Reference: {0}".format(ref.replace('@@ ', '')))
+                #print("Hypothesis {1}: {0}"
+                #      .format(hyp[0][0].replace('@@ ', ''), cont))
+                print("Correction: {0}".format(''.join(correction[1])))
+                print("Reference: {0}".format(ref))
                 print("Hypothesis {1}: {0}"
-                      .format(hyp[0][0].replace('@@ ', ''), cont))
+                      .format(hyp[0][0], cont))
                 print('~~~~~~~~~~~~~~~~~~')
                 print('Mouse actions: {0}'.format(mouse_actions_))
                 print('Word strokes: {0}'.format(word_strokes_))
