@@ -912,6 +912,10 @@ def autocomplete_opts(parser, dynamic=False):
     group.add('--predictions', '-predictions', default='completions.txt',
               help="Path to output the predictions (each line will "
                    "be the autocompleted word).")
+    group.add('--bpe', '-bpe',
+              help='BPE codes. (Default: do not use BPE.)')
+    group.add('--bpe_separator', '-bpe_separator', default='@@',
+              help='BPE separator. (Default: @@.)')
 
     group = parser.add_argument_group('Model')
     group.add('--model', '-model', dest='models', metavar='MODEL',
