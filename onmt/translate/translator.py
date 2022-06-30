@@ -1037,12 +1037,12 @@ class INMTTranslator(Translator):
             phrase_table=""):
         segments = []
         if left_context != '':
-            segments += [left_context, SegmentType.GENERIC]
-        segments += [typed_seq, SegmentType.TO_COMPLETE]
+            segments.append([[left_context], SegmentType.GENERIC])
+        segments.append([[typed_seq], SegmentType.TO_COMPLETE])
         if right_context != '':
-            segments += [right_context, SegmentType.GENERIC]
+            segments.append([[right_context], SegmentType.GENERIC])
 
-        self.segment_based_inmt(src=src, segments=segments)
+        self.segment_based_inmt(src=src, segment_list=segments)
         for segment in self.get_segments():
             if segment[-1] == SegmentType.TO_COMPLETE:
                 return ' '.join(segment[1])

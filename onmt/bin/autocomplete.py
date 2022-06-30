@@ -38,6 +38,7 @@ def parse_sentences(document):
 
 
 def word_level_autocompletion(opt):
+    ArgumentParser.validate_autocomplete_opts(opt)
     logger = init_logger(opt.log_file)
 
     translator = build_translator(opt, logger=logger, report_score=True)
@@ -67,13 +68,13 @@ def word_level_autocompletion(opt):
         if bpe is not None:
             completion = completion.replace(opt.bpe_separator + ' ',
                                             '').rstrip()
-        words.write(completion)
+            completion = completion.replace(opt.bpe_separator, '').rstrip()
+        words.write(completion + '\n')
         try:
             if completion == sentences[n]['target']:
                 matches += 1
         except KeyError:
             pass
-        return
 
     if 'target' in sentences[0].keys():
         print(f'Acc: {matches / len(sentences):.1f}')
