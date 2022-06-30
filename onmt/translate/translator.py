@@ -1085,8 +1085,7 @@ class INMTTranslator(Translator):
         self.last_word_idx = {}
         self.out_segments = []
         self.prefix = None
-
-        phrase_table = {}
+        self.phrase_table = {}
         tgt_vocab = self._tgt_vocab.itos
 
         self.segments = []
@@ -1100,8 +1099,7 @@ class INMTTranslator(Translator):
             #|==============================================================|
             if segment_type == SegmentType.GENERIC:
                 segment_indices = new_segment[0]
-                segment_offset = 1 if segment_comm[0]=='<s>'else 0
-
+                
                 for pos, word in enumerate(segment_comm):
                     try:
                         index_value = tgt_vocab.index(word)
@@ -1110,13 +1108,12 @@ class INMTTranslator(Translator):
                     segment_indices.append(index_value)
 
                     if index_value == 0:
-                        segment_phrase_table[pos - segment_offset] = word
+                        segment_phrase_table[pos] = word
             #|==============================================================|
             #|                 SegmentType.TO_COMPLETE
             #|==============================================================|
             elif segment_type == SegmentType.TO_COMPLETE:
                 segment_indices = new_segment[0]
-                segment_offset = 1 if segment_comm[0]=='<s>' else 0
 
                 for pos, word in enumerate(segment_comm[:-1]):
                     try:
@@ -1126,7 +1123,7 @@ class INMTTranslator(Translator):
                     segment_indices.append(index_value)
 
                     if index_value == 0:
-                        segment_phrase_table[pos - segment_offset] = word
+                        segment_phrase_table[pos] = word
 
                 last_word = segment_comm[-1]
                 last_word_idx = []
@@ -1135,8 +1132,28 @@ class INMTTranslator(Translator):
                         last_word_idx.append(idx)
                 if len(last_word_idx) == 0:
                     last_word_idx = [0]
-                    segment_phrase_table[len(segment_comm)-1 - segment_offset] = last_word
+                    segment_phrase_table[len(segment_comm)-1] = last_word
                 segment_indices.append(last_word_idx)
+            #|==============================================================|
+            #|                 SegmentType.PREFIX
+            #|==============================================================|
+            elif segment_type == SegmentType.PREFIX:
+                segment_indices = [2]
+                for pos, word in enumerate(segment_comm):
+                    try:
+                        index_value = tgt_vocab.index(word)
+                    except ValueError:
+                        index_value = 0
+                    segment_indices.append(index_value)
+
+                    if index_value == 0:
+                        self.phrase_table[pos] = word
+                segment_indices.append(3)
+                self.prefix = torch.tensor([[[i]] for i in segment_indices])
+
+                out_segment = [0, len(segment_comm), segment_type]
+                self.out_segments.append(out_segment)
+                continue
             #|==============================================================|
             self.segments.append(new_segment)
 
@@ -1487,14 +1504,20 @@ class INMTTranslator(Translator):
 
                     if pos_next_segment == -1:
                         pos_next_segment = len(best_hyp)
-                    new_prefix = best_hyp[:pos_next_segment] + next_segment_comm[:-1] + [3]
+                    new_prefix = best_hyp[:pos_next_segment] + next_segment_comm[:-1]
 
-                    self.last_word_idx[step+1+len(new_prefix)-1] = next_segment_comm[-1]
+                    if next_segment_comm[-1] != [0]:
+                        self.last_word_idx[step+1+len(new_prefix)] = next_segment_comm[-1]
+                    else:
+                        new_prefix += [0]
 
+                    new_prefix += [3]
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+
                     if next_segment_phrs:
-                        next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
+                        next_segment_phrs = dict([(k+step+len(new_prefix)-2, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
+
                 #|==============================================================|
                 out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
                 self.out_segments.append(out_segment)
