@@ -1037,10 +1037,10 @@ class INMTTranslator(Translator):
             phrase_table=""):
         segments = []
         if left_context != '':
-            segments.append([[left_context], SegmentType.GENERIC])
-        segments.append([[typed_seq], SegmentType.TO_COMPLETE])
+            segments.append([left_context.split(), SegmentType.GENERIC])
+        segments.append([typed_seq.split(), SegmentType.TO_COMPLETE])
         if right_context != '':
-            segments.append([[right_context], SegmentType.GENERIC])
+            segments.append([right_context.split(), SegmentType.GENERIC])
 
         self.segment_based_inmt(src=src, segment_list=segments)
         for segment in self.get_segments():
@@ -1099,7 +1099,8 @@ class INMTTranslator(Translator):
             #|==============================================================|
             if segment_type == SegmentType.GENERIC:
                 segment_indices = new_segment[0]
-                
+                segment_offset = 1 if segment_comm[0]=='<s>'else 0
+
                 for pos, word in enumerate(segment_comm):
                     try:
                         index_value = tgt_vocab.index(word)
