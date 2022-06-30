@@ -1047,6 +1047,8 @@ class INMTTranslator(Translator):
             if segment[-1] == SegmentType.TO_COMPLETE:
                 return ' '.join(segment[1])
 
+        return ''
+
     def segment_based_inmt(
         self,
         src,
