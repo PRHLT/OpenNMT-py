@@ -1016,12 +1016,36 @@ class INMTTranslator(Translator):
 
     def get_segments(self):
         """
-        TODO: 
+        TODO:
         Return the segments
         [POS, COM, TYPE]
         """
         return self.out_segments
 
+    def word_level_autocompletion(
+            self,
+            src,
+            left_context,
+            right_context,
+            typed_seq,
+            src_feats={},
+            tgt=None,
+            batch_size=1,
+            batch_type="sents",
+            attn_debug=False,
+            align_debug=False,
+            phrase_table=""):
+        segments = []
+        if left_context != '':
+            segments += [left_context, SegmentType.GENERIC]
+        segments += [typed_seq, SegmentType.TO_COMPLETE]
+        if right_context != '':
+            segments += [right_context, SegmentType.GENERIC]
+
+        self.segment_based_inmt(src=src, segments=segments)
+        for segment in self.get_segments():
+            if segment[-1] == SegmentType.TO_COMPLETE:
+                return ' '.join(segment[1])
 
     def segment_based_inmt(
         self,
@@ -1077,7 +1101,7 @@ class INMTTranslator(Translator):
             if segment_type == SegmentType.GENERIC:
                 segment_indices = new_segment[0]
                 segment_offset = 1 if segment_comm[0]=='<s>'else 0
-                
+
                 for pos, word in enumerate(segment_comm):
                     try:
                         index_value = tgt_vocab.index(word)
@@ -1315,7 +1339,7 @@ class INMTTranslator(Translator):
 
             # Preparamos una variable para guardar las traducciones y otra para los scores
             forward_hyp_trans = []
-            forward_hyp_score = [] 
+            forward_hyp_score = []
 
             for step in range(max_N):
                 decoder_input = copy_decode_strategy.current_predictions.view(1, -1, 1)
@@ -1332,7 +1356,7 @@ class INMTTranslator(Translator):
                 )
 
                 copy_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-                
+
                 any_finished = copy_decode_strategy.is_finished.any()
                 if any_finished:
                     copy_decode_strategy.update_finished()
@@ -1340,7 +1364,7 @@ class INMTTranslator(Translator):
                         break
 
                 select_indices = copy_decode_strategy.select_indices
-                
+
                 if any_finished:
                     # Reorder states.
                     if isinstance(copy_memory_bank, tuple):

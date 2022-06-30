@@ -33,11 +33,11 @@ def word_level_autocompletion(opt):
         left_context = sentences[n]['left_context']
         right_context = sentences[n]['right_context']
         typed_seq = sentences[n]['typed_seq']
-        completion = translator.prefix_based_inmt(
+        completion = translator.word_level_autocompletion(
             src=[src],
-            left_context=[left_context],
-            right_context=[right_context],
-            typed_seq=[typed_seq]
+            left_context=left_context,
+            right_context=right_context,
+            typed_seq=typed_seq
             )
         words.write(completion)
         try:
