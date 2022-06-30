@@ -77,7 +77,7 @@ def word_level_autocompletion(opt):
             pass
 
     if 'target' in sentences[0].keys():
-        print(f'Acc: {matches / len(sentences):.1f}')
+        print(f'Acc: {matches / len(sentences):.3f}')
 
 
 def _get_parser():
