@@ -19,46 +19,18 @@ def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
 
 def generate_segment_list(feedback, correction):
     segments = []
-    end_pos  = []
-    corrected = True if correction == '' else False
+    corrected = True if (correction == '' or not correction) else False
 
-    def add_correction_segment(new_segment, start_pos):
-        if (len(segments) > 0 and 
-            segments[-1][1]==SegmentType.GENERIC and 
-            new_segment[1]==SegmentType.GENERIC):
-            if start_pos == (end_pos[-1]):
-                if len(segments[-1][0]) == end_pos[-1]:
-                    segments[-1][0].insert(0, '<s>')
-                segments[-1][0] += new_segment[0]
-                return
-        elif (len(segments) > 0 and
-              new_segment[1]==SegmentType.TO_COMPLETE):
-            if start_pos == (end_pos[-1]):
-                if len(segments[-1][0]) == end_pos[-1]:
-                    segments[-1][0].insert(0, '<s>')
-                segments[-1][0] += new_segment[0]
-                segments[-1][1] = SegmentType.TO_COMPLETE
-                return
-
-        if start_pos == 0:
-            new_segment[0].insert(0, '<s>')
-
-        segments.append(new_segment)
-        end_pos.append(start_pos+len(new_segment[0]))
-
-    for segment in feedback:   
+    for segment in feedback:
         if not corrected and correction[0] <= segment[0]:
             n_segment = [correction[1], correction[2]]
-            add_correction_segment(n_segment, correction[0])
+            segments.append(n_segment)
             corrected = True
-
-        n_segment = [segment[1], SegmentType.GENERIC]
+        n_segment = [segment[1], segment[2]]
         segments.append(n_segment)
-        end_pos.append(segment[0]+len(segment[1]))
-
     if not corrected:
         n_segment = [correction[1], correction[2]]
-        add_correction_segment(n_segment, correction[0])
+        segments.append(n_segment)
 
     return segments
 
@@ -66,19 +38,47 @@ def generate_segment_list(feedback, correction):
 def get_correction(character_level, hyp, ref):
     for n in range(len(ref)):
         if n >= len(hyp):
-            return ([n, [ref[n][0]], SegmentType.TO_COMPLETE] if character_level
-                    else [n, [ref[n]], SegmentType.GENERIC])
+            return ([n, [ref[n][0]], SegmentType.TO_COMPLETE, n] if character_level
+                    else [n, [ref[n]], SegmentType.GENERIC, n])
         if ref[n] != hyp[n]:
             if not character_level:
-                return [n, [ref[n]], SegmentType.GENERIC]
+                return [n, [ref[n]], SegmentType.GENERIC, n]
             for m in range(len(ref[n])):
                 if m >= len(hyp[n]) or hyp[n][m] != ref[n][m]:
                     chars = ref[n][:m+1]
                     if chars[-1] == '@':
                         chars += '@'
-                        return [n, [chars], SegmentType.GENERIC]
-                    return [n, [chars], SegmentType.TO_COMPLETE]
-            return [n, [ref[n]], SegmentType.GENERIC]
+                        return [n, [chars], SegmentType.GENERIC, n]
+                    return [n, [chars], SegmentType.TO_COMPLETE, n]
+            return [n, [ref[n]], SegmentType.GENERIC, n]
+    return ''
+
+
+def correction_segments(feedback, s1, s2, character_level=False):
+    s1_list, s2_list = [0], [0]
+    for segment in feedback:
+        s_pos, s_com, s_typ = segment
+
+        common_pos = 0
+        prt_s2 = s2[s2_list[-1]:]
+        for i in range(len(prt_s2)):
+            if prt_s2[i:i+len(s_com)] == s_com:
+                common_pos = i
+                break
+
+        correction = get_correction(character_level, s1[s1_list[-1]:s_pos], prt_s2[:common_pos])
+        if correction != '' and correction != []:
+            correction[0] += s1_list[-1]
+            correction[3] += s2_list[-1]
+            return correction
+
+        s1_list.append(s_pos+len(s_com))
+        s2_list.append(s2_list[-1]+common_pos+len(s_com))
+    correction = get_correction(character_level, s1[s1_list[-1]:], s2[s2_list[-1]:])
+    if correction != '' and correction!=[]:
+        correction[0] += s1_list[-1]
+        correction[3] += s2_list[-1]
+        return correction
     return ''
 
 
@@ -109,15 +109,131 @@ def get_segments(s1, s2, s1_offset=0, s2_offset=0):
         return [], []
 
     s1_before = s1[:s1_start]
-    s2_before = s2#[:s2_start]
+    s2_before = s2[:s2_start]
     s1_after = s1[s1_start+len_common:]
-    s2_after = s2#[s2_start+len_common:]
+    s2_after = s2[s2_start+len_common:]
     before = get_segments(s1_before, s2_before, s1_offset, s2_offset)
     after = get_segments(s1_after, s2_after, s1_offset+s1_start+len_common,
                          s2_offset+s2_start+len_common)
 
-    return (before[0] + [[s1_offset+s1_start, com]] + after[0],
-            before[1] + [[s2_offset+s2_start, com]] + after[1])
+    return (before[0] + [[s1_offset+s1_start, com, SegmentType.GENERIC]] + after[0],
+            before[1] + [[s2_offset+s2_start, com, SegmentType.GENERIC]] + after[1])
+
+
+def merge_segments(feedback, correction, s1, s2):
+    if feedback:
+        previous = feedback[0]
+
+        for segment in feedback[1:]:
+            s_pos, s_com, s_typ = segment
+
+            common_pos = 0
+            for i in range(len(s2)):
+                if s2[i:i+len(s_com)] == s_com:
+                    common_pos = i
+                    break
+
+            merged_segments = previous[1] + s_com
+            refered_version = s2[common_pos-len(previous[1]):common_pos+len(s_com)]
+            if merged_segments == refered_version:
+                
+                len_diff = s_pos - (previous[0] + len(previous[1]))
+                previous[1] = merged_segments
+                pos = feedback.index(segment)
+                for x in feedback[pos+1:]:
+                    x[0]-=len_diff
+                feedback.pop(pos)
+            else:
+                previous = segment
+
+        if feedback[0][0] != 0 and s2[:len(feedback[0][1])] == feedback[0][1]:
+            if not correction or correction=='' or correction[0]>feedback[0][0]:                
+                feedback[0][0] = 0
+                feedback[0][2] = SegmentType.PREFIX
+
+    return feedback
+
+
+def new_segments(feedback, s1, s2):
+    new_feedback = []
+    s1_list, s2_list = [0], [0]
+    for idx, segment in enumerate(feedback):
+        s_pos, s_com, s_typ = segment
+
+        common_pos = 0
+        prt_s2 = s2[s2_list[-1]:]
+        for i in range(len(prt_s2)):
+            if prt_s2[i:i+len(s_com)] == s_com:
+                common_pos = i
+                break
+
+        segments, b = get_segments(s1[s1_list[-1]:s_pos], prt_s2[:common_pos], s1_list[-1], s2_list[-1])
+        if segments:
+            [new_feedback.append(x) for x in segments]
+        new_feedback.append(segment)
+
+        s1_list.append(s_pos+len(s_com))
+        s2_list.append(s2_list[-1]+common_pos+len(s_com))
+
+    segments, _ = get_segments(s1[s1_list[-1]:], s2[s2_list[-1]:], s1_list[-1], s2_list[-1])
+    if segments:
+        [new_feedback.append(x) for x in segments]
+
+    return new_feedback
+
+
+def expand_one_segment(s1, s2, segment, s1_offset=0, s2_offset=0):
+    """
+    longest common substring where s3 is present
+    """
+    s_pos, s_com, s_typ = segment
+    s_pos -= s1_offset
+    common_pos = 0
+    for i in range(len(s2)):
+        if s2[i:i+len(s_com)] == s_com:
+            common_pos = i
+            break
+
+    prefix = s1[:s_pos]
+    for i in range(1, len(prefix)+1):
+        offset_1 = s_pos-1
+        offset_2 = common_pos-1
+
+        if offset_1<0 or offset_2<0:
+            break
+        if s1[offset_1]!=s2[offset_2]:
+            break
+
+        s_com = [s1[offset_1]] + s_com
+        s_pos -= 1
+        common_pos -= 1
+
+    suffix = s1[s_pos+len(s_com):]
+    for i in range(len(suffix)):
+        offset_1 = s_pos + len(s_com)
+        offset_2 = common_pos + len(s_com)
+
+        if offset_1>=len(s1) or offset_2>=len(s2):
+            break
+        if s1[offset_1]!=s2[offset_2]:
+            break
+
+        s_com += [s1[offset_1]]
+
+    return [s_pos+s1_offset, s_com, s_typ], s_pos+len(s_com)+s1_offset, common_pos+len(s_com)+s2_offset
+
+
+def expand_segments(feedback, s1, s2):
+    s1_list, s2_list = [0], [0]
+    for idx, segment in enumerate(feedback):
+        last_pos = feedback[idx+1][0] if idx < len(feedback)-1 else len(s1)
+        segment, last_s1, last_s2 = expand_one_segment(s1[s1_list[-1]:last_pos], s2[s2_list[-1]:], segment, s1_list[-1], s2_list[-1])
+
+        feedback[idx] = segment
+        s1_list.append(last_s1)
+        s2_list.append(last_s2)
+
+    return feedback
 
 
 def compute_mouse_actions(segments):
@@ -148,7 +264,9 @@ def segment_based_simulation(opt):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
+
         translator.prefix = None
+        translator.out_segments = []
         score, hyp = translator.translate(src=[src], batch_size=1)
 
         eos = False
@@ -165,36 +283,98 @@ def segment_based_simulation(opt):
         mouse_actions = 0
         word_strokes = 0
         character_strokes = 0
-        while hyp[0][0] != ref and not eos:
 
-            feedback, _ = get_segments(hyp[0][0].split(), ref.split())
-            print(feedback)
-            correction = get_correction(opt.character_level, hyp[0][0].split(),
-                                        ref.split())
-            print(correction)
+        feedback = []
+        correction = []
+        c_correction = None
+        while hyp[0][0] != ref and not eos:
+            #print("==================================================================")
+            #print(feedback)
+            # 1) Si no hay segmentos guardados el usuario hace una primera seleccion
+            if not feedback:
+                 feedback, _ = get_segments(hyp[0][0].split(), ref.split())
+                #feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
+            else:
+                correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
+                correction = correction[0] if correction else correction
+                feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
+
+            # 2) Comprobamos si la corrección ha finalizado
+            if correction:
+                # 2.1) Se ha generado la palabra que queriamos
+                if correction[1] == [c_correction]:
+                    correction[2] = SegmentType.GENERIC
+                    added = False
+                    for idx, segment in enumerate(feedback):
+                        if correction[0]<segment[0]:
+                            feedback.insert(idx, correction)
+                            added = True
+                            break
+                    if not added:
+                        feedback.append(correction)
+                    correction = []
+                    c_correction = None
+                # 2.2) La palabra que queriamos rellenar se encuentra entre dos segmentos
+                else:
+                    pos_1 = 0
+                    for segment in feedback:
+                        pos_2 = segment[0]
+                        if correction[0] >= pos_1 and correction[0] < pos_2:
+                            if c_correction in hyp[0][0].split()[pos_1:pos_2]:
+                                correction = []
+                                c_correction = None
+                            break
+                        pos_1 = pos_2 + len(segment[1])
+            #print(correction, c_correction)
+
+            #print("FEEDBACK {}: \n{}".format(cont-1, feedback))
+            # 3) Con los segmentos actuales el usuario intenta extender
+            feedback = expand_segments(feedback, hyp[0][0].split(), ref.split())
+            #print("FIXED {}: \n{}".format(cont-1, feedback))
+
+            # 4) El usuario añade nuevos segmentos que se hayan podido crear
+            feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
+            #print("ADDED {}: \n{}".format(cont-1, feedback))
+
+            # 5) El usuario fusiona segmentos
+            feedback = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
+            #print("MERGED {}: \n{}".format(cont-1, feedback))
+
+            # 6) El usuario realiza la correccion
+            if not correction:
+                correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
+                c_correction = ref.split()[correction[3]] if correction != '' else None
+            else:
+                pos = correction[0]
+                correction = get_correction(opt.character_level, correction[1], [c_correction])
+                correction[0] = pos
+            #print(correction, c_correction)
+
             segment_list = generate_segment_list(feedback, correction)
-            print(segment_list)
+            #print(segment_list)
 
             word_strokes_ = 1
             mouse_actions_ = compute_mouse_actions(feedback)
-            character_strokes_ = 1 if correction == '' else len(correction[1])
+            character_strokes_ = 1 if (correction == '' or not correction) else len(correction[1])
 
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
                 eos = True
             score, hyp = translator.segment_based_inmt(
                 src=[src],
-                segments=segment_list
+                segment_list=segment_list
                 )
+            feedback = translator.get_segments()
+
             if opt.inmt_verbose:
-                print("Segments: {0}".format('\t'.join([' '.join(segment[-1]) 
-                                                for segment in feedback])))
+                print("Segments: {0}".format(' || '.join([' '.join(segment[0]) 
+                                                for segment in segment_list])))
                 #print("Correction: {0}".format(''.join(correction[1])
                 #                               .replace('@@', '')))
                 #print("Reference: {0}".format(ref.replace('@@ ', '')))
                 #print("Hypothesis {1}: {0}"
                 #      .format(hyp[0][0].replace('@@ ', ''), cont))
-                print("Correction: {0}".format(''.join(correction[1])))
+                print("Correction: {0}".format(''.join(correction[1]) if correction else ''))
                 print("Reference: {0}".format(ref))
                 print("Hypothesis {1}: {0}"
                       .format(hyp[0][0], cont))
@@ -372,6 +552,7 @@ def prefix_based_simulation(opt):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
+
         translator.prefix = None
         score, hyp = translator.translate(src=[src], batch_size=1)
 
