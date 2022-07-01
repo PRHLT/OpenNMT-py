@@ -12,9 +12,9 @@ from onmt.constants import SegmentType
 def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
     characters = sum([len(ref) for ref in refs])
     words = sum([len(ref.split()) for ref in refs])
-    print('MAR: {0}'.format(round(mouse_actions / characters * 100, 1)))
-    print('WSR: {0}'.format(round(word_strokes / words * 100, 1)))
-    print('KSR: {0}'.format(round(character_strokes / characters * 100, 1)))
+    print('MAR: {0}'.format(round((mouse_actions / characters) * 100, 1)))
+    print('WSR: {0}'.format(round((word_strokes / words) * 100, 1)))
+    print('KSR: {0}'.format(round((character_strokes / characters) * 100, 1)))
 
 
 def generate_segment_list(feedback, correction):
@@ -260,147 +260,151 @@ def segment_based_simulation(opt):
     total_word_strokes = 0
     total_character_strokes = 0
 
-    for n in range(len(srcs)):
-        logger.info("Processing sentence %d." % n)
-        src = srcs[n]
-        ref = refs[n].decode('utf-8').strip()
+    try:
+        for n in range(len(srcs)):
+            logger.info("Processing sentence %d." % n)
+            src = srcs[n]
+            ref = refs[n].decode('utf-8').strip()
 
-        translator.prefix = None
-        translator.out_segments = []
-        score, hyp = translator.translate(src=[src], batch_size=1)
+            translator.prefix = None
+            translator.out_segments = []
+            score, hyp = translator.translate(src=[src], batch_size=1)
 
-        eos = False
-
-        if opt.inmt_verbose:
-            print("Source: {0}".format(src.decode('utf-8').strip()
-                                       .replace('@@ ', '')))
-            print("Reference: {0}".format(ref.replace('@@ ', '')))
-            print("Initial hypothesis: {0}".format(hyp[0][0]
-                                                   .replace('@@ ', '')))
-            print()
-
-        cont = 1
-        mouse_actions = 0
-        word_strokes = 0
-        character_strokes = 0
-
-        feedback = []
-        correction = []
-        c_correction = None
-        while hyp[0][0] != ref and not eos:
-            #print("==================================================================")
-            #print(feedback)
-            # 1) Si no hay segmentos guardados el usuario hace una primera seleccion
-            if not feedback:
-                 feedback, _ = get_segments(hyp[0][0].split(), ref.split())
-                #feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
-            else:
-                correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
-                correction = correction[0] if correction else correction
-                feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
-
-            # 2) Comprobamos si la corrección ha finalizado
-            if correction:
-                # 2.1) Se ha generado la palabra que queriamos
-                if correction[1] == [c_correction]:
-                    correction[2] = SegmentType.GENERIC
-                    added = False
-                    for idx, segment in enumerate(feedback):
-                        if correction[0]<segment[0]:
-                            feedback.insert(idx, correction)
-                            added = True
-                            break
-                    if not added:
-                        feedback.append(correction)
-                    correction = []
-                    c_correction = None
-                # 2.2) La palabra que queriamos rellenar se encuentra entre dos segmentos
-                else:
-                    pos_1 = 0
-                    for segment in feedback:
-                        pos_2 = segment[0]
-                        if correction[0] >= pos_1 and correction[0] < pos_2:
-                            if c_correction in hyp[0][0].split()[pos_1:pos_2]:
-                                correction = []
-                                c_correction = None
-                            break
-                        pos_1 = pos_2 + len(segment[1])
-            #print(correction, c_correction)
-
-            #print("FEEDBACK {}: \n{}".format(cont-1, feedback))
-            # 3) Con los segmentos actuales el usuario intenta extender
-            feedback = expand_segments(feedback, hyp[0][0].split(), ref.split())
-            #print("FIXED {}: \n{}".format(cont-1, feedback))
-
-            # 4) El usuario añade nuevos segmentos que se hayan podido crear
-            feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
-            #print("ADDED {}: \n{}".format(cont-1, feedback))
-
-            # 5) El usuario fusiona segmentos
-            feedback = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
-            #print("MERGED {}: \n{}".format(cont-1, feedback))
-
-            # 6) El usuario realiza la correccion
-            if not correction:
-                correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
-                c_correction = ref.split()[correction[3]] if correction != '' else None
-            else:
-                pos = correction[0]
-                correction = get_correction(opt.character_level, correction[1], [c_correction])
-                correction[0] = pos
-            #print(correction, c_correction)
-
-            segment_list = generate_segment_list(feedback, correction)
-            #print(segment_list)
-
-            word_strokes_ = 1
-            mouse_actions_ = compute_mouse_actions(feedback)
-            character_strokes_ = 1 if (correction == '' or not correction) else len(correction[1])
-
-            if correction == '':  # End of sentence needed.
-                correction = 'EoS'
-                eos = True
-            score, hyp = translator.segment_based_inmt(
-                src=[src],
-                segment_list=segment_list
-                )
-            feedback = translator.get_segments()
+            eos = False
 
             if opt.inmt_verbose:
-                print("Segments: {0}".format(' || '.join([' '.join(segment[0]) 
-                                                for segment in segment_list])))
-                #print("Correction: {0}".format(''.join(correction[1])
-                #                               .replace('@@', '')))
-                #print("Reference: {0}".format(ref.replace('@@ ', '')))
-                #print("Hypothesis {1}: {0}"
-                #      .format(hyp[0][0].replace('@@ ', ''), cont))
-                print("Correction: {0}".format(''.join(correction[1]) if correction else ''))
-                print("Reference: {0}".format(ref))
-                print("Hypothesis {1}: {0}"
-                      .format(hyp[0][0], cont))
-                print('~~~~~~~~~~~~~~~~~~')
-                print('Mouse actions: {0}'.format(mouse_actions_))
-                print('Word strokes: {0}'.format(word_strokes_))
-                print('Character strokes: {0}'.format(character_strokes_))
+                print("Source: {0}".format(src.decode('utf-8').strip()
+                                           .replace('@@ ', '')))
+                print("Reference: {0}".format(ref.replace('@@ ', '')))
+                print("Initial hypothesis: {0}".format(hyp[0][0]
+                                                       .replace('@@ ', '')))
                 print()
-            cont += 1
-            mouse_actions += mouse_actions_
-            word_strokes += word_strokes_
-            character_strokes += character_strokes_
 
-        if opt.inmt_verbose:
-            print('------------------\n')
-            print('Total mouse actions: {0}'.format(mouse_actions))
-            print('Total word strokes: {0}'.format(word_strokes))
-            print('Total character strokes: {0}'.format(character_strokes))
-            print()
-            print('-------------------------------------------\n')
-        total_mouse_actions += mouse_actions
-        total_word_strokes += word_strokes
-        total_character_strokes += character_strokes
+            cont = 1
+            mouse_actions = 0
+            word_strokes = 0
+            character_strokes = 0
 
-    compute_metrics(refs, total_mouse_actions,
-                    total_word_strokes, total_character_strokes)
+            feedback = []
+            correction = []
+            c_correction = None
+            while hyp[0][0] != ref and not eos:
+                #print("==================================================================")
+                #print(feedback)
+                # 1) Si no hay segmentos guardados el usuario hace una primera seleccion
+                if not feedback:
+                     feedback, _ = get_segments(hyp[0][0].split(), ref.split())
+                    #feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
+                else:
+                    correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
+                    correction = correction[0] if correction else correction
+                    feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
+
+                # 2) Comprobamos si la corrección ha finalizado
+                if correction:
+                    # 2.1) Se ha generado la palabra que queriamos
+                    if correction[1] == [c_correction]:
+                        correction[2] = SegmentType.GENERIC
+                        added = False
+                        for idx, segment in enumerate(feedback):
+                            if correction[0]<segment[0]:
+                                feedback.insert(idx, correction)
+                                added = True
+                                break
+                        if not added:
+                            feedback.append(correction)
+                        correction = []
+                        c_correction = None
+                    # 2.2) La palabra que queriamos rellenar se encuentra entre dos segmentos
+                    else:
+                        pos_1 = 0
+                        for segment in feedback:
+                            pos_2 = segment[0]
+                            if correction[0] >= pos_1 and correction[0] < pos_2:
+                                if c_correction in hyp[0][0].split()[pos_1:pos_2]:
+                                    correction = []
+                                    c_correction = None
+                                break
+                            pos_1 = pos_2 + len(segment[1])
+                #print(correction, c_correction)
+
+                #print("FEEDBACK {}: \n{}".format(cont-1, feedback))
+                # 3) Con los segmentos actuales el usuario intenta extender
+                feedback = expand_segments(feedback, hyp[0][0].split(), ref.split())
+                #print("FIXED {}: \n{}".format(cont-1, feedback))
+
+                # 4) El usuario añade nuevos segmentos que se hayan podido crear
+                feedback = new_segments(feedback, hyp[0][0].split(), ref.split())
+                #print("ADDED {}: \n{}".format(cont-1, feedback))
+
+                # 5) El usuario fusiona segmentos
+                feedback = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
+                #print("MERGED {}: \n{}".format(cont-1, feedback))
+
+                # 6) El usuario realiza la correccion
+                if not correction:
+                    correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
+                    c_correction = ref.split()[correction[3]] if correction != '' else None
+                else:
+                    pos = correction[0]
+                    correction = get_correction(opt.character_level, correction[1], [c_correction])
+                    correction[0] = pos
+                #print(correction, c_correction)
+
+                segment_list = generate_segment_list(feedback, correction)
+                #print(segment_list)
+
+                word_strokes_ = 1
+                mouse_actions_ = compute_mouse_actions(feedback)
+                character_strokes_ = 1 if (correction == '' or not correction) else len(correction[1])
+
+                if correction == '':  # End of sentence needed.
+                    correction = 'EoS'
+                    eos = True
+                score, hyp = translator.segment_based_inmt(
+                    src=[src],
+                    segment_list=segment_list
+                    )
+                feedback = translator.get_segments()
+
+                if opt.inmt_verbose:
+                    print("Segments: {0}".format(' || '.join([' '.join(segment[0]) 
+                                                    for segment in segment_list])))
+                    #print("Correction: {0}".format(''.join(correction[1])
+                    #                               .replace('@@', '')))
+                    #print("Reference: {0}".format(ref.replace('@@ ', '')))
+                    #print("Hypothesis {1}: {0}"
+                    #      .format(hyp[0][0].replace('@@ ', ''), cont))
+                    print("Correction: {0}".format(''.join(correction[1]) if correction else ''))
+                    print("Reference: {0}".format(ref))
+                    print("Hypothesis {1}: {0}"
+                          .format(hyp[0][0], cont))
+                    print('~~~~~~~~~~~~~~~~~~')
+                    print('Mouse actions: {0}'.format(mouse_actions_))
+                    print('Word strokes: {0}'.format(word_strokes_))
+                    print('Character strokes: {0}'.format(character_strokes_))
+                    print()
+                cont += 1
+                mouse_actions += mouse_actions_
+                word_strokes += word_strokes_
+                character_strokes += character_strokes_
+
+            if opt.inmt_verbose:
+                print('------------------\n')
+                print('Total mouse actions: {0}'.format(mouse_actions))
+                print('Total word strokes: {0}'.format(word_strokes))
+                print('Total character strokes: {0}'.format(character_strokes))
+                print()
+                print('-------------------------------------------\n')
+            total_mouse_actions += mouse_actions
+            total_word_strokes += word_strokes
+            total_character_strokes += character_strokes
+
+        compute_metrics(refs, total_mouse_actions,
+                        total_word_strokes, total_character_strokes)
+    except KeyboardInterrupt: 
+        compute_metrics(refs[:n], total_mouse_actions,
+                        total_word_strokes, total_character_strokes)
 
 
 def get_character_level_corrections_prefix(hyp, ref):
