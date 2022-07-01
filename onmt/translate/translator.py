@@ -1042,10 +1042,17 @@ class INMTTranslator(Translator):
         if right_context != '':
             segments.append([right_context.split(), SegmentType.GENERIC])
 
-        self.segment_based_inmt(src=src, segment_list=segments)
+        _, hyp = self.segment_based_inmt(src=src, segment_list=segments)
         for segment in self.get_segments():
             if segment[-1] == SegmentType.TO_COMPLETE:
-                return ' '.join(segment[1])
+                subwords = segment[1]
+                if subwords[-1][-2:] == '@@':
+                    subwords = []
+                    for w in hyp[0][0].split()[segment[0]:]:
+                        subwords.append(w)
+                        if w[-2:] != '@@':
+                            break
+                return ' '.join(subwords)
 
         return ''
 
@@ -1518,7 +1525,7 @@ class INMTTranslator(Translator):
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
 
                     if next_segment_phrs:
-                        next_segment_phrs = dict([(k+step+len(new_prefix)-2, v) for k, v in next_segment_phrs.items()])
+                        next_segment_phrs = dict([(k+step+pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
 
                 #|==============================================================|
