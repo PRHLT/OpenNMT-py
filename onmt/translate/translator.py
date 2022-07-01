@@ -1491,7 +1491,7 @@ class INMTTranslator(Translator):
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
 
                     if next_segment_phrs:
-                        next_segment_phrs = dict([(k+step+len(new_prefix)-2, v) for k, v in next_segment_phrs.items()])
+                        next_segment_phrs = dict([(k+step+pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
 
                 #|==============================================================|
