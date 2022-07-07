@@ -66,7 +66,7 @@ def word_level_autocompletion(opt):
         print(f'Acc: {matches / len(sentences):.3f}')
 
     if opt.wlac is not None:
-        json.dump(sentences, open(opt.wlac, 'rb'), indent=3)
+        json.dump(sentences, open(opt.wlac, 'w'), indent=3)
 
 
 def _get_parser():
