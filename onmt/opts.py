@@ -916,6 +916,9 @@ def autocomplete_opts(parser, dynamic=False):
               help='BPE codes. (Default: do not use BPE.)')
     group.add('--bpe_separator', '-bpe_separator', default='@@',
               help='BPE separator. (Default: @@.)')
+    group.add('--wlac', '-wlac', help="Output the predictions into a json "
+              "file, following the format from the Word-Level AutoCompletion "
+              "WMT shared task.")
 
     group = parser.add_argument_group('Model')
     group.add('--model', '-model', dest='models', metavar='MODEL',

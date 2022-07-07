@@ -59,9 +59,14 @@ def word_level_autocompletion(opt):
                 matches += 1
         except KeyError:
             pass
+        if opt.wlac is not None:
+            sentences[n]['target'] = completion
 
     if 'target' in sentences[0].keys():
         print(f'Acc: {matches / len(sentences):.3f}')
+
+    if opt.wlac is not None:
+        json.dump(sentences, open(opt.wlac, 'rb'), indent=3)
 
 
 def _get_parser():
