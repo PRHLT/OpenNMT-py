@@ -28,22 +28,13 @@ def init_bpe(codes, separator):
         raise ImportError('subword_nmt requirement not satisfied.')
 
 
-def parse_sentences(document):
-    doc = []
-    with open(document, "rb") as f:
-        sentences = f.readlines()
-    for sentence in sentences:
-        doc.append(json.loads(sentence))
-    return doc
-
-
 def word_level_autocompletion(opt):
     ArgumentParser.validate_autocomplete_opts(opt)
     logger = init_logger(opt.log_file)
 
     translator = build_translator(opt, logger=logger, report_score=True)
 
-    sentences = parse_sentences(opt.document)
+    sentences = json.load(open(opt.document))
     words = open(opt.predictions, 'w')
     matches = 0
 
