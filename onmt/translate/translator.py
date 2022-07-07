@@ -1034,7 +1034,22 @@ class INMTTranslator(Translator):
             batch_type="sents",
             attn_debug=False,
             align_debug=False,
-            phrase_table=""):
+            phrase_table="",
+            bpe=None):
+
+        src =  [src if (not bpe or not src) else bpe.process_line(src)]
+        left_context = left_context if (not bpe or not left_context) else bpe.process_line(left_context)
+        right_context = right_context if (not bpe or not right_context) else bpe.process_line(right_context)
+
+
+        finded = False
+        tgt_vocab = self._tgt_vocab.itos
+        for idx, word in enumerate(tgt_vocab):
+            if word.startswith(typed_seq):
+                finded = True
+                break
+        typed_seq = typed_seq if (finded or not bpe) else bpe.process_line(typed_seq)
+
         segments = []
         if left_context != '':
             segments.append([left_context.split(), SegmentType.GENERIC])
