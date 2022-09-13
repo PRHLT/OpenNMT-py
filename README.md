@@ -119,10 +119,10 @@ and our system submission to WMT22's [Word-Level AutoCompletion shared task](htt
 
 ```
 @inproceedings{Navarro22,
-	title 			= {{PRHLT}’s Submission to {WLAC} 2022},
-	author			= {Navarro, {\'A}ngel and Domingo, Miguel and Casacuberta, Francisco},
-	booktitle 		= {Proceedings of the Seventh Conference on Machine Translation},
-	year 			 = {2022},
-	note 			 = {Under review.}
+	title 		= {{PRHLT}’s Submission to {WLAC} 2022},
+	author		= {Navarro, {\'A}ngel and Domingo, Miguel and Casacuberta, Francisco},
+	booktitle 	= {Proceedings of the Seventh Conference on Machine Translation},
+	year 		= {2022},
+	note 		= {Under review.}
 }
 ```
