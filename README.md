@@ -25,7 +25,7 @@ In order to install *OpenNMT-py*, it is assumed that you have created a director
   ```
 
 ### Docker
-Alternatively, in the directory [docker](docker/English.md) you can find instructions to run the toolkit through Docker.
+Alternatively, in the directory [docker](docker) you can find instructions to run the toolkit through Docker.
 
 ## Variable definition
 For the correct use of *OpenNMT-py*, the following variables need to be set up:

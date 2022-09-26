@@ -1,0 +1,54 @@
+# Example of a configuration yaml file.
+
+# Data
+save_data: /data/EuTrans
+src_vocab: /data/EuTrans/es.vocab
+tgt_vocab: /data/EuTrans/en.vocab
+overwrite: False
+
+# Corpora:
+data:
+    corpus_1:
+        path_src: /data/EuTrans/training.es
+        path_tgt: /data/EuTrans/training.en
+    valid:
+        path_src: /data/EuTrans/development.es
+        path_tgt: /data/EuTrans/development.en
+# Model
+decoder_type: transformer
+encoder_type: transformer
+word_vec_size: 64
+rnn_size: 64
+layers: 2
+transformer_ff: 64
+heads: 2
+accum_count: 8
+warmup_steps: 8000
+optim: adam
+adam_beta1: 0.9
+adam_beta2: 0.998
+decay_method: noam
+learning_rate: 2.0
+max_grad_norm: 0.0
+batch_size: 50
+batch_type: tokens
+normalization: tokens
+dropout: 0.1
+label_smoothing: 0.1
+max_generator_batches: 2
+param_init: 0.0
+param_init_glorot: 'true'
+position_encoding: 'true'
+
+# Train on a single GPU (uncomment the following lines for using GPU)
+world_size: 1
+# gpu_ranks:
+#  - 0
+
+# Checkpoints
+save_model: /data/models/EuTrans
+save_checkpoint_steps: 1000
+train_steps: 5000
+valid_steps: 1000
+keep_checkpoint: 10
+report_every: 100
