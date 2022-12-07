@@ -5,6 +5,7 @@
 * [Image building](#image-building).
 * [Structure](#structure).
 * [Dataset](#dataset).
+* [Config](#config).
 * [Vocabulary](#vocabulary).
 * [Training](#trainig).
 * [Translation](#translation).
