@@ -103,8 +103,8 @@ docker container run -it --rm --gpus all -v "$(pwd)"/data:/data \
 You can evaluate a translation hypothesis by doing:
 
 ```
-docker container run -i --rm --gpus all -v "$(pwd)"/data:/data \
--v "$(pwd)"/config.yaml:/opt/opennmt-py/config.yaml opennmt-py-lab
+docker container run -i --rm -v "$(pwd)"/data:/data \
+-v "$(pwd)"/config.yaml:/opt/opennmt-py/config.yaml opennmt-py-lab \
 sacrebleu --force -f text /data/dataset/test.tgt < data/test.hyp
 ```
 
