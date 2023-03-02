@@ -1484,8 +1484,7 @@ class INMTTranslator(Translator):
 
                     if next_segment_comm[-1] != [0]:
                         self.last_word_idx[step+1+len(new_prefix)] = next_segment_comm[-1]
-                    else:
-                        new_prefix += [0]
+                    new_prefix += [0]
 
                     new_prefix += [3]
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
