@@ -1125,7 +1125,7 @@ class INMTTranslator(Translator):
                     if index_value == 0:
                         self.phrase_table[pos] = word
                 segment_indices.append(3)
-                self.prefix = torch.tensor([[[i]] for i in segment_indices])
+                self.prefix = torch.tensor([[[i]] for i in segment_indices]).to(self._dev)
 
                 out_segment = [0, len(segment_comm), segment_type]
                 self.out_segments.append(out_segment)
@@ -1457,7 +1457,7 @@ class INMTTranslator(Translator):
                         pos_next_segment = len(best_hyp)
                     new_prefix = best_hyp[:pos_next_segment] + next_segment_comm + [3]
 
-                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
                     if next_segment_phrs:
                         next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
@@ -1487,7 +1487,8 @@ class INMTTranslator(Translator):
                     new_prefix += [0]
 
                     new_prefix += [3]
-                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
 
                     if next_segment_phrs:
                         next_segment_phrs = dict([(k+step+pos_next_segment, v) for k, v in next_segment_phrs.items()])
