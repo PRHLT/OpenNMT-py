@@ -56,7 +56,7 @@ def get_correction(character_level, hyp, ref):
         larger_than_reference = (n >= len(hyp))
         if larger_than_reference:
             if character_level:
-                return [n, hyp[:n] + [ref_word[0]], SegmentType.TO_COMPLETE, n]
+                return [n, hyp[:n] + [ref_word[0]], SegmentType.TO_COMPLETE, 0]
             return get_word_correction_bpe(n, ref)
 
         hyp_and_ref_not_equal = (ref_word != hyp[n])
@@ -69,8 +69,8 @@ def get_correction(character_level, hyp, ref):
                     chars = ref_word[:m+1]
                     if chars[-1] == '@':
                         chars += '@'
-                        return [n, hyp[:n]+[chars]+[ref[n+1][0]], SegmentType.TO_COMPLETE, n]
-                    return [n, hyp[:n] + [chars], SegmentType.TO_COMPLETE, n]
+                        return [n, hyp[:n]+[chars]+[ref[n+1][0]], SegmentType.TO_COMPLETE, 0]
+                    return [n, hyp[:n] + [chars], SegmentType.TO_COMPLETE, 0]
             return [n, ref, SegmentType.GENERIC, n]
     return ''
 
@@ -319,9 +319,9 @@ def segment_based_simulation(opt):
     total_character_strokes = 0
 
     for n in range(len(srcs)):
-        #if n<445:
+        #if n<264:
         #    continue
-        #if n>445:
+        #if n>264:
         #    sys.exit()
 
 
