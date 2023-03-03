@@ -355,8 +355,7 @@ class Inference(object):
         batch_type="sents",
         attn_debug=False,
         align_debug=False,
-        phrase_table=""
-    ):
+        phrase_table=""):
 
         if batch_size is None:
             raise ValueError("batch_size must be set")
@@ -384,6 +383,7 @@ class Inference(object):
             dynamic=True,
             transform=transform)
 
+
     def translate(
         self,
         src,
@@ -393,8 +393,7 @@ class Inference(object):
         batch_type="sents",
         attn_debug=False,
         align_debug=False,
-        phrase_table="",
-    ):
+        phrase_table="",):
         """Translate content of ``src`` and get gold scores from ``tgt``.
 
         Args:
@@ -450,6 +449,7 @@ class Inference(object):
             align_debug=align_debug,
             phrase_table=phrase_table)
 
+
     def _translate(
         self,
         data,
@@ -460,8 +460,7 @@ class Inference(object):
         align_debug=False,
         phrase_table="",
         dynamic=False,
-        transform=None
-    ):
+        transform=None):
 
         data_iter = inputters.OrderedIterator(
             dataset=data,
@@ -600,6 +599,7 @@ class Inference(object):
             )
         return all_scores, all_predictions
 
+
     def _align_pad_prediction(self, predictions, bos, pad):
         """
         Padding predictions in batch and add BOS.
@@ -632,6 +632,7 @@ class Inference(object):
         )  # (batch, n_best, tgt_l)
         return batched_nbest_predict
 
+
     def _report_score(self, name, score_total, words_total):
         if words_total == 0:
             msg = "%s No words predicted" % (name,)
@@ -655,8 +656,7 @@ class Inference(object):
         memory_lengths,
         src_map=None,
         step=None,
-        batch_offset=None,
-    ):
+        batch_offset=None,):
         if self.copy_attn:
             # Turn any copied words into UNKs.
             decoder_in = decoder_in.masked_fill(
@@ -707,14 +707,15 @@ class Inference(object):
             # or [ tgt_len, batch_size, vocab ] when full sentence
         return log_probs, attn
 
+
     def translate_batch(self, batch, src_vocabs, attn_debug):
         """Translate a batch of sentences."""
         raise NotImplementedError
 
-    def _score_target(
-        self, batch, memory_bank, src_lengths, src_vocabs, src_map
-    ):
+
+    def _score_target(self, batch, memory_bank, src_lengths, src_vocabs, src_map):
         raise NotImplementedError
+
 
     def report_results(
         self,
@@ -725,8 +726,7 @@ class Inference(object):
         src_lengths,
         src_vocabs,
         use_src_map,
-        decode_strategy,
-    ):
+        decode_strategy,):
         results = {
             "predictions": None,
             "scores": None,
@@ -755,6 +755,7 @@ class Translator(Inference):
                 f"Translator does not support task {task}."
                 f" Tasks supported: {ModelTask.SEQ2SEQ}"
             )
+
 
     def _align_forward(self, batch, predictions):
         """
@@ -804,6 +805,7 @@ class Translator(Inference):
         )
         return alignement
 
+
     def translate_batch(self, batch, src_vocabs, attn_debug):
         """Translate a batch of sentences."""
         with torch.no_grad():
@@ -851,6 +853,7 @@ class Translator(Inference):
                 batch, src_vocabs, decode_strategy
             )
 
+
     def _run_encoder(self, batch):
         src, src_lengths = (
             batch.src if isinstance(batch.src, tuple) else (batch.src, None)
@@ -871,9 +874,8 @@ class Translator(Inference):
             )
         return src, enc_states, memory_bank, src_lengths
 
-    def _translate_batch_with_strategy(
-        self, batch, src_vocabs, decode_strategy
-    ):
+
+    def _translate_batch_with_strategy(self, batch, src_vocabs, decode_strategy):
         """Translate a batch of sentences step by step using cache.
 
         Args:
@@ -973,9 +975,8 @@ class Translator(Inference):
             decode_strategy,
         )
 
-    def _score_target(
-        self, batch, memory_bank, src_lengths, src_vocabs, src_map
-    ):
+
+    def _score_target(self, batch, memory_bank, src_lengths, src_vocabs, src_map):
         tgt = batch.tgt
         tgt_in = tgt[:-1]
 
@@ -1111,6 +1112,27 @@ class INMTTranslator(Translator):
                     segment_phrase_table[len(segment_comm)-1] = last_word
                 segment_indices.append(last_word_idx)
             #|==============================================================|
+            #|                 SegmentType.DIFFERENT
+            #|==============================================================|
+            elif segment_type == SegmentType.DIFFERENT:
+                segment_indices = new_segment[0]
+
+                for pos, word in enumerate(segment_comm):
+                    try:
+                        index_value = tgt_vocab.index(word)
+                    except ValueError:
+                        index_value = 0
+                    segment_indices.append(index_value)
+
+                    # Tampoco queremos que termine la oracion
+                    if 3 not in segment_indices:
+                        segment_indices.append(3)
+
+                    # Tampoco queremos una palabra UNKNOWN
+                    if 0 not in segment_indices:
+                        segment_indices.append(0)
+
+            #|==============================================================|
             #|                 SegmentType.PREFIX
             #|==============================================================|
             elif segment_type == SegmentType.PREFIX:
@@ -1132,17 +1154,6 @@ class INMTTranslator(Translator):
                 continue
             #|==============================================================|
             self.segments.append(new_segment)
-
-        """
-        if self.segments[0][0][0] == 2:
-            first_segment = self.segments.pop(0)
-            type_segment = first_segment[1]
-            if type_segment==SegmentType.GENERIC:
-                self.prefix = torch.tensor([[[i]] for i in first_segment[0][:]])
-            elif type_segment==SegmentType.TO_COMPLETE:
-                self.prefix = torch.tensor([[[i]] for i in first_segment[0][:-1]])
-                self.last_word_idx[len(self.prefix)] = first_segment[0][-1]
-        """
 
         return self.translate(src, src_feats, tgt, batch_size, batch_type,
             attn_debug, align_debug, phrase_table)
@@ -1378,11 +1389,16 @@ class INMTTranslator(Translator):
                     )
 
                 mask = [False]*parallel_paths
+                #|==============================================================|
+                #|                 SegmentType.GENERIC
+                #|==============================================================|
                 if next_segment != None and next_segment[1] == SegmentType.GENERIC:
                     new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
                     new_words_list = np.asarray(new_words_list)
                     mask = new_words_list==next_segment[0][0]
-
+                #|==============================================================|
+                #|                 SegmentType.TO_COMPLETE
+                #|==============================================================|
                 elif next_segment != None and next_segment[1] == SegmentType.TO_COMPLETE:
                     new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
                     new_words_list = np.asarray(new_words_list)
@@ -1394,6 +1410,17 @@ class INMTTranslator(Translator):
                             mask = np.logical_or(mask, current_mask)
                     else:
                         mask = new_words_list==next_word
+                #|==============================================================|
+                #|                 SegmentType.DIFFERENT
+                #|==============================================================|
+                elif next_segment != None and next_segment[1] == SegmentType.DIFFERENT:
+                    new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
+                    new_words_list = np.asarray(new_words_list)
+
+                    for blocked_word in next_segment[0]:
+                        current_mask = new_words_list==blocked_word
+                        mask = np.logical_or(mask, current_mask)
+                    mask = ~mask
 
                 if True in mask:
                     forward_hyp_trans = [copy_decode_strategy.alive_seq[mask,:]]
@@ -1442,7 +1469,7 @@ class INMTTranslator(Translator):
 
                 pos_next_segment = -1
                 #|==============================================================|
-                #|                 SegmentType.TO_COMPLETE
+                #|                 SegmentType.GENERIC
                 #|==============================================================|
                 if next_segment_type == SegmentType.GENERIC:
                     for pos, _ in enumerate(best_hyp):
@@ -1456,6 +1483,32 @@ class INMTTranslator(Translator):
                     if pos_next_segment == -1:
                         pos_next_segment = len(best_hyp)
                     new_prefix = best_hyp[:pos_next_segment] + next_segment_comm + [3]
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
+                    if next_segment_phrs:
+                        next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
+                        self.phrase_table.update(next_segment_phrs)
+                #|==============================================================|
+                #|                 SegmentType.DIFFERENT
+                #|==============================================================|
+                elif next_segment_type == SegmentType.DIFFERENT:
+                    for pos, _ in enumerate(best_hyp):
+                        prt_best_hyp = best_hyp[pos : pos+1][0]
+                        blocked_words = next_segment_comm
+
+                        if prt_best_hyp not in blocked_words:
+                            pos_next_segment = pos
+
+                    if pos_next_segment == -1:
+                        pos_next_segment = len(best_hyp)
+
+                        possible_words = np.arange(0, len(self._tgt_vocab.itos), 1)
+                        possible_words = np.delete(possible_words, blocked_words)
+                        self.last_word_idx[step+1+pos_next_segment] = list(possible_words)
+
+                        new_prefix = best_hyp[:pos_next_segment] + [3]
+                    else:
+                        new_prefix = best_hyp[:pos_next_segment] + [best_hyp[-1]] + [3]
 
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
                     if next_segment_phrs:
@@ -1495,8 +1548,9 @@ class INMTTranslator(Translator):
                         self.phrase_table.update(next_segment_phrs)
 
                 #|==============================================================|
-                out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
-                self.out_segments.append(out_segment)
+                if next_segment_type != SegmentType.DIFFERENT:
+                    out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
+                    self.out_segments.append(out_segment)
 
             decoder_input = decode_strategy.current_predictions.view(1, -1, 1)
 

@@ -8,7 +8,12 @@ import onmt.opts as opts
 import sys
 from onmt.utils.parse import ArgumentParser
 from onmt.constants import SegmentType
+import random
 
+from onmt.utils.cm import Fast_Align
+
+
+MAXIMUM_DECODING_LENGTH=100
 def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
     characters = sum([len(ref) for ref in refs])
     words = sum([len(ref.split()) for ref in refs])
@@ -18,22 +23,35 @@ def compute_metrics(refs, mouse_actions, word_strokes, character_strokes):
 
 
 def generate_segment_list(feedback, correction):
+    """
+    CORRECTION -> List of corrections to introduce to the segment list
+        0.0 -> Pos Correction
+        0.1 -> Correction Performed
+        0.2 -> Correction Type
+    """
     segments = []
-    corrected = True if (correction == '' or not correction) else False
+
+    next_correction = None
+    correction_index = 0
+    if correction != '' and correction != []:
+        next_correction = correction[correction_index]
 
     for segment in feedback:
-        if not corrected and correction[0] <= segment[0]:
-            n_segment = [correction[1], correction[2]]
+        if next_correction!=None and next_correction[0] <= segment[0]:
+            n_segment = [next_correction[1], next_correction[2]]
             segments.append(n_segment)
-            corrected = True
+
+            correction_index += 1
+            next_correction = correction[correction_index] if correction_index<len(correction) else None
+
         n_segment = [segment[1], segment[2]]
         segments.append(n_segment)
-    if not corrected:
-        n_segment = [correction[1], correction[2]]
+
+    if next_correction!=None:
+        n_segment = [next_correction[1], next_correction[2]]
         segments.append(n_segment)
 
     return segments
-
 
 def get_word_correction_bpe(pos, ref):
     ref_word = ref[pos]
@@ -50,7 +68,7 @@ def get_word_correction_bpe(pos, ref):
     return correction
 
 
-def get_correction(character_level, hyp, ref):
+def get_correction(hyp, ref, character_level):
     for n, ref_word in enumerate(ref): 
 
         larger_than_reference = (n >= len(hyp))
@@ -74,8 +92,119 @@ def get_correction(character_level, hyp, ref):
             return [n, ref, SegmentType.GENERIC, n]
     return ''
 
+def get_confidence(cm_model, src, hyp_word, total_len, offset=0):
+    return cm_model.get_confidence(src, hyp_word, offset+1, total_len)
 
-def correction_segments(feedback, s1, s2, character_level=False):
+def get_lower_confidence(cm_model, src, hyp, total_len, offset=0):
+    if len(hyp)==0:
+        return 1.0
+
+    lower_cm = 1.0
+    for position, hyp_word in enumerate(hyp):
+        cm_score = get_confidence(cm_model, src, hyp_word, total_len, offset+position)
+
+        if cm_score < lower_cm:
+            lower_cm = cm_score
+    return lower_cm
+
+def correction_segments_with_cm(feedback, src, hyp, ref, cm_model, opt):
+    character_level = opt.character_level
+    max_length = opt.max_length
+
+    possible_corrections = []
+    """
+        0 -> Confidence
+        1 -> Partial_Hyp
+        2 -> correction
+            2.0 -> Pos Correction
+            2.1 -> Correction Performed
+            2.2 -> Type Correction
+    """
+
+    hyp_end_last_segment = 0
+    ref_end_last_segment = 0
+
+    for segment in feedback:
+        s_pos, s_com, s_typ = segment
+        if s_pos >= max_length:
+            break
+
+
+        partial_hyp = hyp[ hyp_end_last_segment:s_pos ]
+        partial_ref = ref[ ref_end_last_segment: ]
+
+        common_pos = 0
+        for i in range(len(partial_ref)):
+            if partial_ref[i:i+len(s_com)] == s_com:
+                common_pos = i
+                break
+        partial_ref = partial_ref[:common_pos]
+
+        lower_cm = 1.0
+        if partial_hyp != []:
+            lower_cm = get_confidence(cm_model, src, partial_hyp[0], len(hyp), hyp_end_last_segment)
+
+        correction = get_correction(partial_hyp, partial_ref, character_level)
+        if correction != '' and correction != []:
+            correction[0] += hyp_end_last_segment
+            correction[3] += ref_end_last_segment
+            possible_corrections.append([lower_cm, partial_hyp, correction])
+
+        hyp_end_last_segment = s_pos+len(s_com)
+        ref_end_last_segment += common_pos+len(s_com)
+
+    if hyp_end_last_segment<max_length:
+        partial_hyp = hyp[ hyp_end_last_segment: ]
+        partial_ref = ref[ ref_end_last_segment: ]
+
+        lower_cm = 1.0
+        if partial_hyp != []:
+            lower_cm = get_confidence(cm_model, src, partial_hyp[0], len(hyp), hyp_end_last_segment)
+
+        correction = get_correction(partial_hyp, partial_ref, character_level)
+        if correction != '' and correction!=[]:
+            correction[0] += hyp_end_last_segment
+            correction[3] += ref_end_last_segment
+            possible_corrections.append([lower_cm, partial_hyp, correction])
+
+
+    #possible_corrections = sorted(possible_corrections, key=lambda x: x[0], reverse=False)
+    #random.shuffle(possible_corrections)
+    if len(possible_corrections)!=0:
+        corrections = []
+
+        #correction_pos = random.randint(0, len(possible_corrections)-1)
+        #correction_pos = max(range(len(possible_corrections)), key=possible_corrections.__getitem__)
+        correction_pos = min(range(len(possible_corrections)), key=possible_corrections.__getitem__)
+        #correction_pos = len(possible_corrections)-1
+        for pos in range(0, correction_pos-1):
+            if possible_corrections[pos][1] == []:
+                continue
+            n_correction = possible_corrections[pos][2]
+            n_correction[1] = [possible_corrections[pos][1][0]]
+            n_correction[2] = SegmentType.DIFFERENT
+            corrections.append(n_correction)
+        n_correction = possible_corrections[correction_pos][2]
+        corrections.append(n_correction)
+        return corrections
+    return ''
+
+
+def correction_segments(feedback, s1, s2, opt):
+    """
+    Description:
+        - Return the next segment to correct
+    Input:
+        - feedback -> List of validated Segments [[Start_Position, Validated_Words, Type_of_Segment]]
+        - s1 -> List of Words from the First Sentence
+        - s2 -> List of Words from the Second Sentence
+        - character_level -> Is it working at character_level?
+    Output:
+        - 
+    """
+    character_level = opt.character_level
+    max_length = opt.max_length
+
     s1_list, s2_list = [0], [0]
     for segment in feedback:
         s_pos, s_com, s_typ = segment
@@ -87,19 +216,20 @@ def correction_segments(feedback, s1, s2, character_level=False):
                 common_pos = i
                 break
 
-        correction = get_correction(character_level, s1[s1_list[-1]:s_pos], prt_s2[:common_pos])
+        correction = get_correction(s1[s1_list[-1]:s_pos], prt_s2[:common_pos], character_level)
         if correction != '' and correction != []:
             correction[0] += s1_list[-1]
             correction[3] += s2_list[-1]
-            return correction
+            return [correction]
 
         s1_list.append(s_pos+len(s_com))
         s2_list.append(s2_list[-1]+common_pos+len(s_com))
-    correction = get_correction(character_level, s1[s1_list[-1]:], s2[s2_list[-1]:])
+
+    correction = get_correction(s1[s1_list[-1]:], s2[s2_list[-1]:], character_level)
     if correction != '' and correction!=[]:
         correction[0] += s1_list[-1]
         correction[3] += s2_list[-1]
-        return correction
+        return [correction]
     return ''
 
 
@@ -170,41 +300,49 @@ def get_segments(s1, s2, s1_offset=0, s2_offset=0):
 
 def merge_segments(feedback, correction, s1, s2):
     times = 0
-    if feedback:
-        previous = feedback[0]
+    if not feedback:
+        return feedback, times
 
-        for segment in feedback[1:]:
-            s_pos, s_com, s_typ = segment
+    length_s2 = len(s2)
+    previous_segment = feedback[0]
 
-            if s_typ == SegmentType.TO_COMPLETE or previous[2] == SegmentType.TO_COMPLETE:
-                previous = segment
-                continue
+    for segment in feedback[1:]:
+        s_pos, s_com, s_typ = segment
 
-            common_pos = 0
-            for i in range(len(s2)):
-                if s2[i:i+len(s_com)] == s_com:
-                    common_pos = i
-                    break
+        if s_typ == SegmentType.TO_COMPLETE or previous_segment[2] == SegmentType.TO_COMPLETE:
+            previous_segment = segment
+            continue
 
-            merged_segments = previous[1] + s_com
-            refered_version = s2[common_pos-len(previous[1]):common_pos+len(s_com)]
-            if merged_segments == refered_version:
-                
-                len_diff = s_pos - (previous[0] + len(previous[1]))
-                previous[1] = merged_segments
-                pos = feedback.index(segment)
-                for x in feedback[pos+1:]:
-                    x[0]-=len_diff
-                feedback.pop(pos)
-                times += 1
-            else:
-                previous = segment
+        common_pos = 0
+        for i in range(len(s2)):
+            if s2[i:i+len(s_com)] == s_com:
+                common_pos = i
+                break
 
-        if feedback[0][0] != 0 and s2[:len(feedback[0][1])] == feedback[0][1]:
-            if not correction or correction=='' or correction[0]>feedback[0][0]:                
-                feedback[0][0] = 0
-                feedback[0][2] = SegmentType.PREFIX
-                times += 1
+        prev_common_pos = previous_segment[0]+len(previous_segment[1])
+        for i in range(prev_common_pos, length_s2):
+            if s2[i:i+len(s_com)] == s_com:
+                prev_common_pos = i
+                break
+
+        merged_segments = previous_segment[1] + s_com
+        refered_version = s2[prev_common_pos-len(previous_segment[1]):prev_common_pos+len(s_com)]
+        if merged_segments == refered_version:
+            len_diff = s_pos - (previous_segment[0] + len(previous_segment[1]))
+            previous_segment[1] = merged_segments
+            pos = feedback.index(segment)
+            for x in feedback[pos+1:]:
+                x[0]-=len_diff
+            feedback.pop(pos)
+            times += 1
+        else:
+            previous_segment = segment
+
+    if feedback[0][0] != 0 and s2[:len(feedback[0][1])] == feedback[0][1]:
+        if not correction or correction=='' or correction[0]>feedback[0][0]:
+            feedback[0][0] = 0
+            feedback[0][2] = SegmentType.PREFIX
+            times += 1
 
     return feedback, times
 
@@ -308,6 +446,7 @@ def segment_based_simulation(opt):
     logger = init_logger(opt.log_file)
 
     translator = build_translator(opt, logger=logger, report_score=True)
+    cm_model = Fast_Align('data_europarl/models/fast', alpha=1.0)
 
     with open(opt.src, "rb") as f:
         srcs = f.readlines()
@@ -342,6 +481,10 @@ def segment_based_simulation(opt):
             print("Initial hypothesis: {0}".format(hyp[0][0].replace('@@ ', '')))
             #print("Reference: {0}".format(ref))
             #print("Initial hypothesis: {0}".format(hyp[0][0]))
+            print(cm_model.get_mean_confidence(src.decode('utf-8').split(), hyp[0][0].split()))
+            #for pos, word in enumerate(hyp[0][0].split()):
+            #    value = cm_model.get_confidence(src.decode('utf-8').split(), hyp[0][0].split()[pos], pos+1, len(hyp[0][0].split()))
+            #    print("\t{}: {}".format(word, value))
             print()
 
         cont = 1
@@ -354,7 +497,6 @@ def segment_based_simulation(opt):
         c_correction = None
         while hyp[0][0] != ref and not eos:
             mouse_actions_ = 0
-
 
             # 1) Si no hay segmentos guardados el usuario hace una primera seleccion
             if not feedback:
@@ -403,14 +545,17 @@ def segment_based_simulation(opt):
 
             # 5) El usuario realiza la correccion
             if not correction:
-                correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
+                #correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt)
+                correction = correction_segments_with_cm(feedback, src.decode('utf-8').split(), hyp[0][0].split(), ref.split(), cm_model, opt)
+                #c_correction = ref.split()[correction[-1][3]] if correction != '' else None
+                print(correction)
                 correction_pos = 0
                 c_correction = None
 
                 some_correction = (correction!='')
                 if some_correction:
                     ref_list = ref.split()
-                    correction_pos = correction[3]
+                    correction_pos = correction[-1][3]
                     c_correction = [ ref_list[correction_pos] ]
                 
                     correction_has_bpe = (c_correction[-1][-2:]=='@@')
@@ -421,16 +566,21 @@ def segment_based_simulation(opt):
 
             else:
                 pos = correction[0]
-                correction = get_correction(opt.character_level, correction[1], c_correction)
+                correction = get_correction(correction[1], c_correction, opt.character_level)
+                #correction = get_correction(correction[1], [c_correction], opt.character_level)
                 correction[0] = pos
-
+                
             word_strokes_ = 1
             character_strokes_ = 1             
             some_correction_performed = not (correction=='' or not correction)
             if some_correction_performed and not opt.character_level:
-                character_strokes_ = len(''.join(correction[1]).replace('@@', ''))
+                character_strokes_ = len(''.join(correction[-1][1]).replace('@@', ''))
 
-            #print(feedback, correction)
+            print('START')
+            print(feedback)
+            print(correction)
+            print('END')
+
             segment_list = generate_segment_list(feedback, correction)
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
@@ -444,14 +594,18 @@ def segment_based_simulation(opt):
             feedback = translator.get_segments()
 
             if opt.inmt_verbose:
-                print("Segments: {0}".format(' || '.join([' '.join(segment[0]).replace('@@ ', '') for segment in segment_list])))
-                print("Correction: {0}".format(''.join(correction[1]).replace('@@', '') if isinstance(correction, list) else correction ))
-                print("Reference: {0}".format(ref.replace('@@ ', '')))
-                print("Hypothesis {1}: {0}".format(hyp[0][0].replace('@@ ', ''), cont))
-                #print("Segments: {0}".format(' || '.join([' '.join(segment[0]) for segment in segment_list])))
-                #print("Correction: {0}".format(''.join(correction[1]) if isinstance(correction, list) else correction))
-                #print("Reference: {0}".format(ref))
-                #print("Hypothesis {1}: {0}".format(hyp[0][0], cont))
+                #print("Segments: {0}".format(' || '.join([' '.join(segment[0]).replace('@@ ', '') for segment in segment_list])))
+                #print("Correction: {0}".format(''.join(correction[-1][1]).replace('@@', '') if isinstance(correction, list) else correction ))
+                #print("Reference: {0}".format(ref.replace('@@ ', '')))
+                #print("Hypothesis {1}: {0}".format(hyp[0][0].replace('@@ ', ''), cont))
+                print("Segments: {0}".format(' || '.join([' '.join(segment[0]) for segment in segment_list])))
+                print("Correction: {0}".format(''.join(correction[-1][1]) if isinstance(correction, list) else correction))
+                print("Reference: {0}".format(ref))
+                print("Hypothesis {1}: {0}".format(hyp[0][0], cont))
+                print(cm_model.get_mean_confidence(src.decode('utf-8').split(), hyp[0][0].split()))
+                #for pos, word in enumerate(hyp[0][0].split()):
+                #    value = cm_model.get_confidence(src.decode('utf-8').split(), hyp[0][0].split()[pos], pos+1, len(hyp[0][0].split()))
+                #    print("\t{}: {}".format(word, value))
                 print('~~~~~~~~~~~~~~~~~~')
                 print('Mouse actions: {0}'.format(mouse_actions_))
                 print('Word strokes: {0}'.format(word_strokes_))
@@ -468,6 +622,7 @@ def segment_based_simulation(opt):
             print('Total word strokes: {0}'.format(word_strokes))
             print('Total character strokes: {0}'.format(character_strokes))
             print()
+            print(total_mouse_actions+mouse_actions, total_word_strokes+word_strokes, total_character_strokes+character_strokes)
             print('-------------------------------------------\n')
         total_mouse_actions += mouse_actions
         total_word_strokes += word_strokes
@@ -622,6 +777,8 @@ def prefix_based_simulation(opt):
     total_word_strokes = 0
     total_character_strokes = 0
 
+    model = Fast_Align('data/models/fast')
+
     for n in range(len(srcs)):
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
@@ -639,6 +796,10 @@ def prefix_based_simulation(opt):
             print("Reference: {0}".format(ref.replace('@@ ', '')))
             print("Initial hypothesis: {0}".format(hyp[0][0]
                                                    .replace('@@ ', '')))
+            print(model.get_mean_confidence(src.decode('utf-8').split(), hyp[0][0].split()))
+            for pos, word in enumerate(hyp[0][0].split()):
+                value = model.get_confidence(src.decode('utf-8').split(), hyp[0][0].split()[:pos+1], pos+1, len(hyp[0][0].split()))
+                print("\t{}: {}".format(word, value))
             print()
 
         cont = 1
@@ -666,6 +827,10 @@ def prefix_based_simulation(opt):
                 print("Correction: {0}".format(correction.replace('@@', '')))
                 print("Hypothesis {1}: {0}"
                       .format(hyp[0][0].replace('@@ ', ''), cont))
+                print(model.get_mean_confidence(src.decode('utf-8').split(), hyp[0][0].split()))
+                for pos, word in enumerate(hyp[0][0].split()):
+                    value = model.get_confidence(src.decode('utf-8').split(), hyp[0][0].split()[:pos+1], pos+1, len(hyp[0][0].split()))
+                    print("\t{}: {}".format(word, value))
                 print('~~~~~~~~~~~~~~~~~~')
                 print('Mouse actions: {0}'.format(mouse_actions_))
                 print('Word strokes: {0}'.format(word_strokes_))
@@ -708,7 +873,6 @@ def main():
 
     if opt.segment:
         segment_based_simulation(opt)
-
     elif opt.character_level:
         character_level_prefix_based_simulation(opt)
     else:
