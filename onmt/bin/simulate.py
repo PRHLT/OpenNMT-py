@@ -56,7 +56,7 @@ def get_correction(character_level, hyp, ref):
         larger_than_reference = (n >= len(hyp))
         if larger_than_reference:
             if character_level:
-                return [n, [ref_word[0]], SegmentType.TO_COMPLETE, n]
+                return [n, hyp[:n] + [ref_word[0]], SegmentType.TO_COMPLETE, n]
             return get_word_correction_bpe(n, ref)
 
         hyp_and_ref_not_equal = (ref_word != hyp[n])
@@ -319,9 +319,9 @@ def segment_based_simulation(opt):
     total_character_strokes = 0
 
     for n in range(len(srcs)):
-        #if n<224:
+        #if n<445:
         #    continue
-        #if n>224:
+        #if n>445:
         #    sys.exit()
 
 
@@ -363,12 +363,12 @@ def segment_based_simulation(opt):
             else:
                 correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
                 correction = correction[0] if len(correction)>0 else correction
-            #print(feedback)    
                 
             # 2) Comprobamos si la corrección ha finalizado
             if correction:
                 # 2.1) Se ha generado la palabra que queriamos
-                if correction[1] == c_correction:
+                if hyp[0][0].split()[correction[0]:correction[0]+len(c_correction)] == c_correction:
+                    correction[1] = c_correction
                     correction[2] = SegmentType.GENERIC
                     mouse_actions_ += 1
                     correction = []
@@ -386,20 +386,16 @@ def segment_based_simulation(opt):
                             break
                         pos_1 = pos_2 + len(segment[1])
 
-            # 3) El usuario añade nuevos segmentos que se hayan podido crear
-            if correction:
-                error = correction[1]
-                correction[1] = c_correction
-            feedback, new_ones = new_segments(feedback, hyp[0][0].split(), ref.split())
-            if correction:
-                correction[1] = error
-            #print(feedback, correction)
-            mouse_actions_ += compute_mouse_actions(new_ones)
+            # 3) El usuario añade nuevos segmentos que se hayan podido crear            
+            if not correction:
+                feedback, new_ones = new_segments(feedback, hyp[0][0].split(), ref.split())
+                mouse_actions_ += compute_mouse_actions(new_ones)
 
             # 4) El usuario fusiona segmentos
-            feedback, times = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
+            if not correction:
+                feedback, times = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
+                mouse_actions_ += times*2
             feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
-            mouse_actions_ += times*2
 
             # 5) El usuario realiza la correccion
             if not correction:
@@ -421,8 +417,12 @@ def segment_based_simulation(opt):
 
             else:
                 pos = correction[0]
+                len_previous_correction = len(''.join(correction[1]).replace('@@',''))
                 correction = get_correction(opt.character_level, correction[1], c_correction)
+                len_current_correction = len(''.join(correction[1]).replace('@@',''))
                 correction[0] = pos
+                if len_current_correction > len_previous_correction +1:
+                    mouse_actions_ += 1
 
             word_strokes_ = 1
             character_strokes_ = 1             
@@ -430,13 +430,11 @@ def segment_based_simulation(opt):
             if some_correction_performed and not opt.character_level:
                 character_strokes_ = len(''.join(correction[1]).replace('@@', ''))
 
-            #print(feedback, correction)
             segment_list = generate_segment_list(feedback, correction)
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
                 eos = True
 
-            #print(segment_list)
             score, hyp = translator.segment_based_inmt(
                 src=[src],
                 segment_list=segment_list
