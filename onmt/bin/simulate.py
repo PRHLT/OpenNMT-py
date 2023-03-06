@@ -171,6 +171,7 @@ def get_segments(s1, s2, s1_offset=0, s2_offset=0):
 def merge_segments(feedback, correction, s1, s2):
     times = 0
     if feedback:
+        s2_last_pos = len(feedback[0][1])
         previous = feedback[0]
 
         for segment in feedback[1:]:
@@ -181,13 +182,13 @@ def merge_segments(feedback, correction, s1, s2):
                 continue
 
             common_pos = 0
-            for i in range(len(s2)):
+            for i in range(s2_last_pos, len(s2)):
                 if s2[i:i+len(s_com)] == s_com:
                     common_pos = i
                     break
 
             merged_segments = previous[1] + s_com
-            refered_version = s2[common_pos-len(previous[1]):common_pos+len(s_com)]
+            refered_version = s2[common_pos-len(previous[1]) : common_pos+len(s_com)]
             if merged_segments == refered_version:
                 
                 len_diff = s_pos - (previous[0] + len(previous[1]))
@@ -199,6 +200,7 @@ def merge_segments(feedback, correction, s1, s2):
                 times += 1
             else:
                 previous = segment
+                s2_last_pos = common_pos+len(s_com)
 
         if feedback[0][0] != 0 and s2[:len(feedback[0][1])] == feedback[0][1]:
             if not correction or correction=='' or correction[0]>feedback[0][0]:                
@@ -314,16 +316,17 @@ def segment_based_simulation(opt):
     with open(opt.tgt, "rb") as f:
         refs = f.readlines()
 
+    print(opt.max_length)
+
     total_mouse_actions = 0
     total_word_strokes = 0
     total_character_strokes = 0
 
     for n in range(len(srcs)):
-        #if n<264:
+        #if n<429:
         #    continue
-        #if n>264:
+        #if n>429:
         #    sys.exit()
-
 
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
@@ -363,7 +366,7 @@ def segment_based_simulation(opt):
             else:
                 correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
                 correction = correction[0] if len(correction)>0 else correction
-                
+            
             # 2) Comprobamos si la corrección ha finalizado
             if correction:
                 # 2.1) Se ha generado la palabra que queriamos
