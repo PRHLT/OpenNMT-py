@@ -37,7 +37,7 @@ pip install -r requirements.opt.txt
 This protocol implements the prefix-based framework introduced by [Barrachina et al. (2009)](https://aclanthology.org/J09-1002/).
 
 ### Segment-based IMT
-This protocol implements the segment-based framework introduced by [Domingo et al. (2017)](https://link.springer.com/article/10.1007/s10590-017-9213-3?error=cookies_not_supported&code=7af7856a-375e-405b-ab83-5de11564413d) and [Peris et al. (2017)](https://www.sciencedirect.com/science/article/pii/S0885230816301000).
+This protocol implements the segment-based framework introduced by [Domingo et al. (2017)](https://doi.org/10.1007/s10590-017-9213-3) and [Peris et al. (2017)](https://doi.org/10.1016/j.csl.2016.12.003).
 
 ## Simulation
 
