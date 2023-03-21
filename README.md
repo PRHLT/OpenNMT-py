@@ -5,6 +5,7 @@ This branch extends [OpenNMT-py](https://github.com/OpenNMT/OpenNMT-py) to provi
 ## Table of Contents
   * [Setup](#setup)
   * [IMT Protocols](#imt-protocols)
+  * [Simulation](#simulation)
   * [Model Training](#model-training)
   * [Acknowledgements](#acknowledgements)
   * [Citation](#citation)
