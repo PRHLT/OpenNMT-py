@@ -600,7 +600,12 @@ class Inference(object):
             )
         return all_scores, all_predictions
 
-    def _align_pad_prediction(self, predictions, bos, pad):
+    def _align_pad_prediction(
+        self, 
+        predictions, 
+        bos, 
+        pad
+    ):
         """
         Padding predictions in batch and add BOS.
 
@@ -632,7 +637,12 @@ class Inference(object):
         )  # (batch, n_best, tgt_l)
         return batched_nbest_predict
 
-    def _report_score(self, name, score_total, words_total):
+    def _report_score(
+        self, 
+        name, 
+        score_total, 
+        words_total
+    ):
         if words_total == 0:
             msg = "%s No words predicted" % (name,)
         else:
@@ -707,12 +717,22 @@ class Inference(object):
             # or [ tgt_len, batch_size, vocab ] when full sentence
         return log_probs, attn
 
-    def translate_batch(self, batch, src_vocabs, attn_debug):
+    def translate_batch(
+        self, 
+        batch, 
+        src_vocabs, 
+        attn_debug
+    ):
         """Translate a batch of sentences."""
         raise NotImplementedError
 
     def _score_target(
-        self, batch, memory_bank, src_lengths, src_vocabs, src_map
+        self, 
+        batch, 
+        memory_bank, 
+        src_lengths, 
+        src_vocabs, 
+        src_map
     ):
         raise NotImplementedError
 
@@ -1111,6 +1131,26 @@ class INMTTranslator(Translator):
                     segment_phrase_table[len(segment_comm)-1] = last_word
                 segment_indices.append(last_word_idx)
             #|==============================================================|
+            #|                 SegmentType.DIFFERENT
+            #|==============================================================|
+            elif segment_type == SegmentType.DIFFERENT:
+                segment_indices = new_segment[0]
+
+                for pos, word in enumerate(segment_comm):
+                    try:
+                        index_value = tgt_vocab.index(word)
+                    except ValueError:
+                        index_value = 0
+                    segment_indices.append(index_value)
+
+                    # Tampoco queremos que termine la oracion
+                    if 3 not in segment_indices:
+                        segment_indices.append(3)
+
+                    # Tampoco queremos una palabra UNKNOWN
+                    if 0 not in segment_indices:
+                        segment_indices.append(0)
+            #|==============================================================|
             #|                 SegmentType.PREFIX
             #|==============================================================|
             elif segment_type == SegmentType.PREFIX:
@@ -1378,11 +1418,16 @@ class INMTTranslator(Translator):
                     )
 
                 mask = [False]*parallel_paths
+                #|==============================================================|
+                #|                 SegmentType.GENERIC
+                #|==============================================================|
                 if next_segment != None and next_segment[1] == SegmentType.GENERIC:
                     new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
                     new_words_list = np.asarray(new_words_list)
                     mask = new_words_list==next_segment[0][0]
-
+                #|==============================================================|
+                #|                 SegmentType.TO_COMPLETE
+                #|==============================================================|
                 elif next_segment != None and next_segment[1] == SegmentType.TO_COMPLETE:
                     new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
                     new_words_list = np.asarray(new_words_list)
@@ -1394,6 +1439,17 @@ class INMTTranslator(Translator):
                             mask = np.logical_or(mask, current_mask)
                     else:
                         mask = new_words_list==next_word
+                #|==============================================================|
+                #|                 SegmentType.DIFFERENT
+                #|==============================================================|
+                elif next_segment != None and next_segment[1] == SegmentType.DIFFERENT:
+                    new_words_list = copy_decode_strategy.alive_seq[:,-1].tolist()
+                    new_words_list = np.asarray(new_words_list)
+
+                    for blocked_word in next_segment[0]:
+                        current_mask = new_words_list==blocked_word
+                        mask = np.logical_or(mask, current_mask)
+                    mask = ~mask
 
                 if True in mask:
                     forward_hyp_trans = [copy_decode_strategy.alive_seq[mask,:]]
@@ -1442,7 +1498,7 @@ class INMTTranslator(Translator):
 
                 pos_next_segment = -1
                 #|==============================================================|
-                #|                 SegmentType.TO_COMPLETE
+                #|                 SegmentType.GENERIC
                 #|==============================================================|
                 if next_segment_type == SegmentType.GENERIC:
                     for pos, _ in enumerate(best_hyp):
@@ -1456,6 +1512,32 @@ class INMTTranslator(Translator):
                     if pos_next_segment == -1:
                         pos_next_segment = len(best_hyp)
                     new_prefix = best_hyp[:pos_next_segment] + next_segment_comm + [3]
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
+                    if next_segment_phrs:
+                        next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
+                        self.phrase_table.update(next_segment_phrs)
+                #|==============================================================|
+                #|                 SegmentType.DIFFERENT
+                #|==============================================================|
+                elif next_segment_type == SegmentType.DIFFERENT:
+                    for pos, _ in enumerate(best_hyp):
+                        prt_best_hyp = best_hyp[pos : pos+1][0]
+                        blocked_words = next_segment_comm
+
+                        if prt_best_hyp not in blocked_words:
+                            pos_next_segment = pos
+
+                    if pos_next_segment == -1:
+                        pos_next_segment = len(best_hyp)
+
+                        possible_words = np.arange(0, len(self._tgt_vocab.itos), 1)
+                        possible_words = np.delete(possible_words, blocked_words)
+                        self.last_word_idx[step+1+pos_next_segment] = list(possible_words)
+
+                        new_prefix = best_hyp[:pos_next_segment] + [3]
+                    else:
+                        new_prefix = best_hyp[:pos_next_segment] + [best_hyp[-1]] + [3]
 
                     decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
                     if next_segment_phrs:
@@ -1495,8 +1577,9 @@ class INMTTranslator(Translator):
                         self.phrase_table.update(next_segment_phrs)
 
                 #|==============================================================|
-                out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
-                self.out_segments.append(out_segment)
+                if next_segment_type != SegmentType.DIFFERENT:
+                    out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
+                    self.out_segments.append(out_segment)
 
             decoder_input = decode_strategy.current_predictions.view(1, -1, 1)
 
