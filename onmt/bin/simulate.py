@@ -441,7 +441,6 @@ def segment_based_simulation(opt):
             # 5) El usuario realiza la correccion
             if not correction:
                 correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
-                print(correction)
                 correction_pos = 0
                 c_correction = None
 
@@ -458,13 +457,14 @@ def segment_based_simulation(opt):
                         correction_has_bpe = (correction_pos+1<len(ref_list) and c_correction[-1][-2:]=='@@')
 
             else:
-                pos = correction[-1][0]
+                pos = correction[0]
                 len_previous_correction = len(''.join(correction[1]).replace('@@',''))
-                correction = get_correction(opt.character_level, correction[-1][1], c_correction)
+                correction = get_correction(opt.character_level, correction[1], c_correction)
                 len_current_correction = len(''.join(correction[1]).replace('@@',''))
-                correction[-1][0] = pos
+                correction[0] = pos
                 if len_current_correction > len_previous_correction +1:
                     mouse_actions_ += 1
+                correction = [correction]
 
             word_strokes_ = 1
             character_strokes_ = 1             
