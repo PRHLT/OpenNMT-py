@@ -8,6 +8,9 @@ def check_arguments(opt):
         line = line.split()
         max_length = max(max_length, len(line))
     max_length += 20
-    opt.max_length = max(opt.max_length, max_length)
+
+    if opt.max_length < max_length:
+        opt.max_length = max_length
+        print('WARNING: MAX_LENGTH INCREASED TO {0}'.format(max_length))
 
     return opt
