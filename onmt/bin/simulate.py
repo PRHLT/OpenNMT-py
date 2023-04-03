@@ -7,6 +7,7 @@ from onmt.translate.translator import build_translator
 import onmt.opts as opts
 import sys
 import random
+from onmt.utils.arg_checker import check_arguments
 from onmt.utils.parse import ArgumentParser
 from onmt.constants import SegmentType
 
@@ -745,6 +746,7 @@ def main():
     parser = _get_parser()
 
     opt = parser.parse_args()
+    opt = check_arguments(opt)
 
     if opt.segment:
         segment_based_simulation(opt)
