@@ -32,7 +32,7 @@ def word_level_autocompletion(opt):
     ArgumentParser.validate_autocomplete_opts(opt)
     logger = init_logger(opt.log_file)
 
-    translator = build_translator(opt, logger=logger, report_score=True)
+    translator = build_translator(opt, logger=logger, report_score=False)
 
     sentences = json.load(open(opt.document))
     words = open(opt.predictions, 'w')
@@ -41,6 +41,14 @@ def word_level_autocompletion(opt):
     bpe = None if opt.bpe is None else init_bpe(opt.bpe, opt.bpe_separator)
 
     for n in range(len(sentences)):
+        
+        #if n!=1:
+        #    continue
+        #if n>1:
+        #    sys.exit()
+        
+            
+        print()
         logger.info("Processing sentence %d." % n)
         completion = translator.word_level_autocompletion(
             src=sentences[n]['src'],
