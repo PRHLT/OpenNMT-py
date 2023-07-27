@@ -904,6 +904,99 @@ def inmt_simulation_opts(parser, dynamic=False):
               of a prefix.")
 
 
+def autocomplete_opts(parser, dynamic=False):
+    """ Word-level autocompletion options """
+    group = parser.add_argument_group('Autocomplete')
+    group.add('--document', '-document', required=True,
+              help="json document containing the context and partial words.")
+    group.add('--predictions', '-predictions', default='completions.txt',
+              help="Path to output the predictions (each line will "
+                   "be the autocompleted word).")
+    group.add('--bpe', '-bpe',
+              help='BPE codes. (Default: do not use BPE.)')
+    group.add('--bpe_separator', '-bpe_separator', default='@@',
+              help='BPE separator. (Default: @@.)')
+    group.add('--wlac', '-wlac', help="Output the predictions into a json "
+              "file, following the format from the Word-Level AutoCompletion "
+              "WMT shared task.")
+    group.add('--alignments', '-alignments', default=None, help="Alignments "
+              "file to be used for computing zero-context autocompletions."
+              "This file can be generated using `tools/alignments.sh`.")
+
+    group = parser.add_argument_group('Model')
+    group.add('--model', '-model', dest='models', metavar='MODEL',
+              nargs='+', type=str, default=[], required=True,
+              help="Path to model .pt file(s). "
+                   "Multiple models can be specified, "
+                   "for ensemble decoding.")
+    group.add('--fp32', '-fp32', action='store_true',
+              help="Force the model to be in FP32 "
+                   "because FP16 is very slow on GTX1080(ti).")
+    group.add('--int8', '-int8', action='store_true',
+              help="Enable dynamic 8-bit quantization (CPU only).")
+    group.add('--avg_raw_probs', '-avg_raw_probs', action='store_true',
+              help="If this is set, during ensembling scores from "
+                   "different models will be combined by averaging their "
+                   "raw probabilities and then taking the log. Otherwise, "
+                   "the log probabilities will be averaged directly. "
+                   "Necessary for models whose output layers can assign "
+                   "zero probability.")
+
+    group = parser.add_argument_group('Data')
+    group.add('--data_type', '-data_type', default="text",
+              help="Type of the source input. Options: [text].")
+
+    group.add('--src', '-src', required=False,
+              help="Source sequence to decode (one line per "
+                   "sequence)")
+    group.add("-src_feats", "--src_feats", required=False,
+              help="Source sequence features (dict format). "
+                   "Ex: {'feat_0': '../data.txt.feats0', 'feat_1': '../data.txt.feats1'}")  # noqa: E501
+    group.add('--tgt', '-tgt',
+              help='True target sequence (optional)')
+    group.add('--tgt_prefix', '-tgt_prefix', action='store_true',
+              help='Generate predictions using provided `-tgt` as prefix.')
+    group.add('--shard_size', '-shard_size', type=int, default=10000,
+              help="Divide src and tgt (if applicable) into "
+                   "smaller multiple src and tgt files, then "
+                   "build shards, each shard will have "
+                   "opt.shard_size samples except last shard. "
+                   "shard_size=0 means no segmentation "
+                   "shard_size>0 means segment dataset into multiple shards, "
+                   "each shard has shard_size samples")
+    group.add('--output', '-output', default='pred.txt',
+              help="Path to output the predictions (each line will "
+                   "be the decoded sequence")
+    group.add('--report_align', '-report_align', action='store_true',
+              help="Report alignment for each translation.")
+    group.add('--report_time', '-report_time', action='store_true',
+              help="Report some translation time metrics")
+
+    # Adding options relate to decoding strategy
+    _add_decoding_opts(parser)
+
+    # Adding option for logging
+    _add_logging_opts(parser, is_train=False)
+
+    group = parser.add_argument_group('Efficiency')
+    group.add('--batch_size', '-batch_size', type=int, default=1,
+              help='Batch size')
+    group.add('--batch_type', '-batch_type', default='sents',
+              choices=["sents", "tokens"],
+              help="Batch grouping for batch_size. Standard "
+                   "is sents. Tokens will do dynamic batching")
+    group.add('--gpu', '-gpu', type=int, default=-1,
+              help="Device to run on")
+
+    if dynamic:
+        group.add("-transforms", "--transforms", default=[], nargs="+",
+                  choices=AVAILABLE_TRANSFORMS.keys(),
+                  help="Default transform pipeline to apply to data.")
+
+        # Adding options related to Transforms
+        _add_dynamic_transform_opts(parser)
+
+
 class StoreLoggingLevelAction(configargparse.Action):
     """ Convert string to logging level """
     import logging
