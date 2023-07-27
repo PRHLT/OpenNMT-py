@@ -9,6 +9,54 @@ from onmt.utils.parse import ArgumentParser
 import json
 
 
+def load_alignments(alignments_path):
+    """
+    Creates a dictionary with the word alignments between source and 
+    target. The function receives the path to a file containing the 
+    alignments generated using `tools/alignments.sh`.
+    """
+    alignments = {}
+
+    for line in open(alignments_path):
+        src, tgt, prob = tuple(line.split())
+        if src in alignments:
+            alignments[src][tgt] = float(prob)
+        else:
+            alignments[src] = {tgt: float(prob)}
+    return alignments
+
+
+def zero_context_autocompletion(src, seq, alignments):
+    """
+    Computes zero-context autocompletion using an alignment model.
+    Params:
+        src (str): Source sentence.
+        seq (str): Sequence to autocomplete.
+        alignments (dict): Alignments.
+    """
+    words = {}
+    n = len(seq)
+    for s in src.split():
+        if s in alignments:
+            for w, p in alignments[s].items():
+                if w[:n] == seq:
+                    if w in words:
+                        if p > words[w]:
+                            words[w] = p
+                    else:
+                        words[w] = p
+    
+    completion = seq
+    prob = 0
+    for w, p in words.items():
+        if p > prob:
+            prob = p
+            completion = w
+    return completion
+
+
+
+
 def init_bpe(codes, separator):
     try:
         from subword_nmt import apply_bpe
@@ -40,27 +88,31 @@ def word_level_autocompletion(opt):
 
     bpe = None if opt.bpe is None else init_bpe(opt.bpe, opt.bpe_separator)
 
+    if opt.alignments is not None:
+        alignments = load_alignments(opt.alignments)
+
     for n in range(len(sentences)):
-        
-        #if n!=1:
-        #    continue
-        #if n>1:
-        #    sys.exit()
         
             
         print()
         logger.info("Processing sentence %d." % n)
-        completion = translator.word_level_autocompletion(
-            src=sentences[n]['src'],
-            left_context=sentences[n]['left_context'],
-            right_context=sentences[n]['right_context'],
-            typed_seq=sentences[n]['typed_seq'],
-            bpe=bpe
-            )
-        if bpe is not None:
-            completion = completion.replace(opt.bpe_separator + ' ',
-                                            '').rstrip()
-            completion = completion.replace(opt.bpe_separator, '').rstrip()
+        if (opt.alignments is not None 
+            and sentences[n]['context_type'] == 'zero_context'):
+            completion = zero_context_autocompletion(sentences[n]['src'], 
+                                                     sentences[n]['typed_seq'], 
+                                                     alignments)
+        else:
+            completion = translator.word_level_autocompletion(
+                src=sentences[n]['src'],
+                left_context=sentences[n]['left_context'],
+                right_context=sentences[n]['right_context'],
+                typed_seq=sentences[n]['typed_seq'],
+                bpe=bpe
+                )
+            if bpe is not None:
+                completion = completion.replace(opt.bpe_separator + ' ',
+                                                '').rstrip()
+                completion = completion.replace(opt.bpe_separator, '').rstrip()
         words.write(completion + '\n')
         try:
             if completion == sentences[n]['target']:

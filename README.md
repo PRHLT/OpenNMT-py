@@ -66,7 +66,27 @@ python autocomplete.py --document document.json --model nmt_model.pt \
 --predictions output.pred [--bpe bpe_codes] [--wlac output.json]
 ```
 
-where `document.json` contains the sentences in the format introduced above; `nmt_model.opt` is the NMT model; `output.pred` is a plain text file containing only the autompleted words (one word per input); `bpe_codes` contain the codes used for training the BPE model (if it had been used for training the NMT model); and `output.json` generates the output following the format aforementioned format.
+where `document.json` contains the sentences in the format introduced above; `nmt_model.opt` is the NMT model; `output.pred` is a plain text file containing only the autocompleted words (one word per input); `bpe_codes` contain the codes used for training the BPE model (if it had been used for training the NMT model); and `output.json` generates the output following the format aforementioned format.
+
+### Zero-context using an alignment model
+Additionally, it is possible to use an alignment model to tackle zero-context autocompletion. To do so, you first need to train the alignment model:
+
+```bash
+tools/alignments.sh -s src_file -t tgt_file -o output_file -m mgiza_bin {options}
+
+options:
+     -b: use IBM Model 1. (Default: Use HMM.)
+```
+
+where `src_file` and `tgt_file` are the source and target of the training dataset; `output_file` is the file in which to store the alignments (which will be used for performing the zero-context autocompletions); `mgiza_bin` is the path to [mgiza](https://github.com/moses-smt/mgiza)'s bin folder (e.g., */opt/moses/mgiza/mgizapp/bin*); and the `-b` flags switches from using *Hidden Markov Models* to using *IBM Model 1*.
+
+After that, you just need to run the autocompletion activating the flag `--alignments output_file`:
+
+```bash
+python autocomplete.py --document document.json --model nmt_model.pt \
+--predictions output.pred --alignments output_file [--bpe bpe_codes] \
+[--wlac output.json]
+```
 
 ## Acknowledgements
 
