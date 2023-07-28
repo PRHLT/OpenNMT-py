@@ -919,6 +919,9 @@ def autocomplete_opts(parser, dynamic=False):
     group.add('--wlac', '-wlac', help="Output the predictions into a json "
               "file, following the format from the Word-Level AutoCompletion "
               "WMT shared task.")
+    group.add('--alignments', '-alignments', default=None, help="Alignments "
+              "file to be used for computing zero-context autocompletions."
+              "This file can be generated using `tools/alignments.sh`.")
 
     group = parser.add_argument_group('Model')
     group.add('--model', '-model', dest='models', metavar='MODEL',
