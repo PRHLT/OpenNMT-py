@@ -1016,89 +1016,12 @@ class INMTTranslator(Translator):
 
     def get_segments(self):
         """
-        TODO:
+        TODO: 
         Return the segments
         [POS, COM, TYPE]
         """
         return self.out_segments
 
-    def word_level_autocompletion(
-            self,
-            src,
-            left_context,
-            right_context,
-            typed_seq,
-            src_feats={},
-            tgt=None,
-            batch_size=1,
-            batch_type="sents",
-            attn_debug=False,
-            align_debug=False,
-            phrase_table="",
-            bpe=None):
-
-        src =  [src if (not bpe or not src) else bpe.process_line(src)]
-        left_context = left_context if (not bpe or not left_context) else bpe.process_line(left_context)
-        right_context = right_context if (not bpe or not right_context) else bpe.process_line(right_context)
-
-        if bpe:
-
-            is_a_complet_word = False
-            tgt_vocab = self._tgt_vocab.itos
-            for idx, word in enumerate(tgt_vocab):
-                if word.startswith(typed_seq):
-                    is_a_complet_word = True if typed_seq+'</w>' in bpe.bpe_codes_reverse else is_a_complet_word
-                    break
-                       
-            if is_a_complet_word:
-                #typed_seq = ' '.join(bpe.bpe_codes_reverse[typed_seq+'</w>'])[:-4]
-                pass
-            else:
-                typed_seq = bpe.process_line(typed_seq)
-
-        segments = []
-        if left_context != '':
-            segments.append([left_context.split(), SegmentType.GENERIC])
-        segments.append([typed_seq.split(), SegmentType.TO_COMPLETE])
-        if right_context != '':
-            segments.append([right_context.split(), SegmentType.GENERIC])
-
-        _, hyp = self.segment_based_inmt(src=src, segment_list=segments)
-
-        #| ======================
-        #|         VERBOSE 
-        #| ======================
-        print(f"Source:         {src[0]}")
-        print(f"Left Context:   {left_context.replace('@@ ', '')}")
-        print(f"Right Context:  {right_context.replace('@@ ', '')}")
-        print(f"Typed Seq:      {typed_seq}")
-
-        hyp_debug = hyp[0][0].split()
-        for segment in reversed(self.get_segments()):
-            segment_start  = segment[0]
-            segment_length = len(segment[1])
-            hyp_debug.insert(segment_start + segment_length, ']]')
-            hyp_debug.insert(segment_start, '[[')
-
-        hyp_debug = ' '.join(hyp_debug)
-        hyp_debug = hyp_debug.replace('@@ ', '')
-        print(hyp_debug)
-        #| ======================
-        #|         VERBOSEND
-        #| ======================
-
-
-        for segment in self.get_segments():
-            if segment[-1] == SegmentType.TO_COMPLETE:
-                subwords = segment[1]
-                if subwords[-1][-2:] == '@@':
-                    subwords = []
-                    for w in hyp[0][0].split()[segment[0]:]:
-                        subwords.append(w)
-                        if w[-2:] != '@@':
-                            break
-                return ' '.join(subwords)
-        return ''
 
     def segment_based_inmt(
         self,
@@ -1152,8 +1075,7 @@ class INMTTranslator(Translator):
             #|==============================================================|
             if segment_type == SegmentType.GENERIC:
                 segment_indices = new_segment[0]
-                segment_offset = 1 if segment_comm[0]=='<s>'else 0
-
+                
                 for pos, word in enumerate(segment_comm):
                     try:
                         index_value = tgt_vocab.index(word)
@@ -1397,120 +1319,6 @@ class INMTTranslator(Translator):
             self.model.decoder.map_state(fn_map_state)
 
         def _decode_forward_translations(step_start=0, next_segment=None):
-            #print(next_segment)
-
-            # Hacer copia del estado actual del sistema
-            span_decode_strategy = copy.deepcopy(decode_strategy)
-            span_memory_lengths = copy.deepcopy(memory_lengths)
-            span_memory_bank = copy.deepcopy(memory_bank)
-            span_src_map = copy.deepcopy(src_map)
-            model_state = copy.deepcopy(self.model.decoder.state)
-
-            starting_top_score = 0 if step_start==0 else decode_strategy.topk_scores[0][0]
-            best_average_score = -float("Inf")
-            last_alive_seq = torch.tensor([])
-            score_improved = True
-            
-            step = 0
-            best_step = 0
-            patience = 0
-            while step - best_step <= patience:
-                # Generamos la nueva palabra
-                decoder_input = span_decode_strategy.current_predictions.view(1, -1, 1)
-                log_probs, attn = self._decode_and_generate(
-                    decoder_input,
-                    span_memory_bank,
-                    batch,
-                    src_vocabs,
-                    memory_lengths=span_memory_lengths,
-                    src_map=span_src_map,
-                    step=step+step_start,
-                    batch_offset=span_decode_strategy.batch_offset,
-                )
-                log_probs[:, 1:4] = -float("Inf")
-                span_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-
-                # Forzamos el siguiente segmento SUFIJO
-                suffix_state = copy.deepcopy(self.model.decoder.state)
-                suffix_src_map = copy.deepcopy(span_src_map)
-                suffix_memory_bank = copy.deepcopy(span_memory_bank)
-                suffix_memory_lengths = copy.deepcopy(span_memory_lengths)
-                suffix_decode_strategy = copy.deepcopy(span_decode_strategy)
-
-                there_is_next_segment = next_segment != None
-                if there_is_next_segment:
-                    # GENERIC
-                    if next_segment[1] == SegmentType.GENERIC:
-                        for pos_word, idx_word in enumerate(next_segment[0]):
-                            decoder_input = suffix_decode_strategy.current_predictions.view(1, -1, 1)
-                            log_probs, attn = self._decode_and_generate(
-                                decoder_input,
-                                suffix_memory_bank,
-                                batch,
-                                src_vocabs,
-                                memory_lengths=suffix_memory_lengths,
-                                src_map=suffix_src_map,
-                                step=step+step_start+pos_word,
-                                batch_offset=suffix_decode_strategy.batch_offset,
-                            )
-                            log_probs[:, :idx_word]   = -float("Inf")
-                            log_probs[:, idx_word+1:] = -float("Inf")
-                            suffix_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-                    # TO_COMPLETE
-                    elif next_segment[1] == SegmentType.TO_COMPLETE:
-                        for pos_word, idx_word in enumerate(next_segment[0]):
-                            decoder_input = suffix_decode_strategy.current_predictions.view(1, -1, 1)
-                            log_probs, attn = self._decode_and_generate(
-                                decoder_input,
-                                suffix_memory_bank,
-                                batch,
-                                src_vocabs,
-                                memory_lengths=suffix_memory_lengths,
-                                src_map=suffix_src_map,
-                                step=step+step_start+pos_word,
-                                batch_offset=suffix_decode_strategy.batch_offset,
-                            )
-                            if not isinstance(idx_word, list):
-                                log_probs[:, :idx_word]   = -float("Inf")
-                                log_probs[:, idx_word+1:] = -float("Inf")
-                            else:
-                                for idx in range(0, len(log_probs[0])):
-                                    if idx not in idx_word:
-                                        log_probs[:, idx] = -float("Inf")
-                            suffix_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-                
-
-                #diff_score  = suffix_decode_strategy.topk_scores[0][0] - starting_top_score
-                diff_score  = suffix_decode_strategy.topk_scores[0][0]
-                #diff_length = len(suffix_decode_strategy.alive_seq[0]) - step_start - len(next_segment[0])
-                diff_length = len(suffix_decode_strategy.alive_seq[0])
-                average_score = diff_score / diff_length
-                                
-                #print()
-                #print(suffix_decode_strategy.topk_scores)
-                #print(suffix_decode_strategy.best_scores)
-                #print(suffix_decode_strategy.alive_seq[0])
-                #print(average_score)
-                #print(diff_score, diff_length)
-                #print(step, best_step)
-
-                step += 1
-                if average_score < best_average_score:
-                    score_improved = False
-                else:
-                    last_alive_seq = suffix_decode_strategy.alive_seq
-                    self.model.decoder.state = suffix_state
-                    best_step = step
-                    best_average_score = average_score
-
-
-            self.model.decoder.state = model_state
-            return last_alive_seq[0][1:]
-
-        
-        def _decode_forward_translations2(step_start=0, next_segment=None):
-            print(next_segment)
-
             # Hacemos una copia de diferentes variables para no editarlas y que luego el
             # modelo siga funcionando como si no hubiera ocurrido este paso
             copy_decode_strategy = copy.deepcopy(decode_strategy)
@@ -1524,7 +1332,7 @@ class INMTTranslator(Translator):
 
             # Preparamos una variable para guardar las traducciones y otra para los scores
             forward_hyp_trans = []
-            forward_hyp_score = []
+            forward_hyp_score = [] 
 
             for step in range(max_N):
                 decoder_input = copy_decode_strategy.current_predictions.view(1, -1, 1)
@@ -1541,7 +1349,7 @@ class INMTTranslator(Translator):
                 )
 
                 copy_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-
+                
                 any_finished = copy_decode_strategy.is_finished.any()
                 if any_finished:
                     copy_decode_strategy.update_finished()
@@ -1549,7 +1357,7 @@ class INMTTranslator(Translator):
                         break
 
                 select_indices = copy_decode_strategy.select_indices
-
+                
                 if any_finished:
                     # Reorder states.
                     if isinstance(copy_memory_bank, tuple):
@@ -1618,14 +1426,25 @@ class INMTTranslator(Translator):
                 next_segment_type = next_segment[1]
                 next_segment_phrs = next_segment[2]
 
-                forward_hyp_trans = _decode_forward_translations(step, next_segment)
+                forward_hyp_trans, forward_hyp_score = _decode_forward_translations(step, next_segment)
+
+                # Seleccionamos aquella traduccion de mayor calidad
+                best_hyp = []
+                max_prob = -np.Inf
+                for n_word, beam_scores in enumerate(forward_hyp_score):
+                    # Normalizamos el score
+                    beam_scores = beam_scores[0]/(n_word+step+1)
+                    for idx, score in enumerate(beam_scores):
+                        if score > max_prob:
+                            max_prob = score
+                            best_hyp = forward_hyp_trans[n_word][idx].tolist()
+                best_hyp = best_hyp[step+1:]
 
                 pos_next_segment = -1
                 #|==============================================================|
-                #|                 SegmentType.GENERIC 
+                #|                 SegmentType.TO_COMPLETE
                 #|==============================================================|
                 if next_segment_type == SegmentType.GENERIC:
-                    """
                     for pos, _ in enumerate(best_hyp):
                         prt_best_hyp = best_hyp[pos : pos+len(next_segment_comm)]
                         prt_next_com = next_segment_comm[:len(prt_best_hyp)]
@@ -1637,10 +1456,8 @@ class INMTTranslator(Translator):
                     if pos_next_segment == -1:
                         pos_next_segment = len(best_hyp)
                     new_prefix = best_hyp[:pos_next_segment] + next_segment_comm + [3]
-                    """
-                    pos_next_segment = len(forward_hyp_trans) - len(next_segment[0])
 
-                    decode_strategy.maybe_update_next_target_tokens(step, forward_hyp_trans, self._dev)
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
                     if next_segment_phrs:
                         next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
@@ -1648,7 +1465,6 @@ class INMTTranslator(Translator):
                 #|                 SegmentType.TO_COMPLETE
                 #|==============================================================|
                 elif next_segment_type == SegmentType.TO_COMPLETE:
-                    """
                     for pos, _ in enumerate(best_hyp):
                         prt_best_hyp = best_hyp[pos : pos+len(next_segment_comm)-1]
                         prt_next_com = next_segment_comm[:-1][:len(prt_best_hyp)]
@@ -1671,17 +1487,15 @@ class INMTTranslator(Translator):
                     new_prefix += [0]
 
                     new_prefix += [3]
-                    """
-                    pos_next_segment = len(forward_hyp_trans) - len(next_segment[0])
 
-                    decode_strategy.maybe_update_next_target_tokens(step, forward_hyp_trans, self._dev)
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
 
                     if next_segment_phrs:
                         next_segment_phrs = dict([(k+step+pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
 
                 #|==============================================================|
-                out_segment = [pos_next_segment, len(next_segment_comm), next_segment_type]
+                out_segment = [step+pos_next_segment, len(next_segment_comm), next_segment_type]
                 self.out_segments.append(out_segment)
 
             decoder_input = decode_strategy.current_predictions.view(1, -1, 1)

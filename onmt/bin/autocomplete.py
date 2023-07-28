@@ -80,7 +80,7 @@ def word_level_autocompletion(opt):
     ArgumentParser.validate_autocomplete_opts(opt)
     logger = init_logger(opt.log_file)
 
-    translator = build_translator(opt, logger=logger, report_score=False)
+    translator = build_translator(opt, logger=logger, report_score=True)
 
     sentences = json.load(open(opt.document))
     words = open(opt.predictions, 'w')
@@ -92,9 +92,6 @@ def word_level_autocompletion(opt):
         alignments = load_alignments(opt.alignments)
 
     for n in range(len(sentences)):
-        
-            
-        print()
         logger.info("Processing sentence %d." % n)
         if (opt.alignments is not None 
             and sentences[n]['context_type'] == 'zero_context'):

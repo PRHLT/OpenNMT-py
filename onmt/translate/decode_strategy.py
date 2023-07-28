@@ -346,22 +346,15 @@ class DecodeStrategy(object):
         if device == None:
             torch.device('cpu')
 
-        #if not isinstance(next_indices, list):
-        #    next_indices = [next_indices]
+        if not isinstance(next_indices, list):
+            next_indices = [next_indices]
             
         if self.target_prefix is not None:
-            next_indices = next_indices.repeat(self.parallel_paths, 1)
-            self.target_prefix = next_indices.to(device)
-
-            #presaved_prefix = self.target_prefix[:,:start]
-            #add_prefix = torch.tensor([[0]*(start-self.target_prefix.size(1))+next_indices]*self.parallel_paths).to(torch.device(device))
-            #self.target_prefix = torch.cat((presaved_prefix, add_prefix),1)
-        else:         
-            next_indices = next_indices.repeat(self.parallel_paths, 1)
-            if start != 0:
-                start_tensor = torch.tensor([[0]*start]*self.parallel_paths)
-                next_indices = torch.cat(start_tensor, next_indices)
-            self.target_prefix = next_indices.to(device)
+            presaved_prefix = self.target_prefix[:,:start]
+            add_prefix = torch.tensor([[0]*(start-self.target_prefix.size(1))+next_indices]*self.parallel_paths).to(torch.device(device))
+            self.target_prefix = torch.cat((presaved_prefix, add_prefix),1)
+        else:
+            self.target_prefix = torch.tensor([[0]*(start)+next_indices]*self.parallel_paths).to(device)
 
     def advance(self, log_probs, attn):
         """DecodeStrategy subclasses should override :func:`advance()`.

@@ -474,6 +474,7 @@ def segment_based_simulation(opt):
     compute_metrics(refs, total_mouse_actions,
                     total_word_strokes, total_character_strokes)
 
+
 def get_character_level_corrections_prefix(hyp, ref):
     prefix = []
     correction = ''
