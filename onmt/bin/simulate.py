@@ -247,7 +247,6 @@ def compute_mouse_actions(segments):
         actions += 2 if len(segment[-1]) > 1 else 1
     return actions
 
-
 def segment_based_simulation(opt):
     ArgumentParser.validate_translate_opts(opt)
     ArgumentParser.validate_simulate_opts(opt)
