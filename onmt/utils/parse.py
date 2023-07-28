@@ -348,7 +348,4 @@ class ArgumentParser(cfargparse.ArgumentParser, DataOptsCheckerMixin):
     def validate_inmt_opts(cls, opt):
         opt.batch_size = 1
         opt.model_type = ModelTask.INMT
-
-    @classmethod
-    def validate_autocomplete_opts(cls, opt):
         opt.replace_unk = True

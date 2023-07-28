@@ -1016,60 +1016,12 @@ class INMTTranslator(Translator):
 
     def get_segments(self):
         """
-        TODO:
+        TODO: 
         Return the segments
         [POS, COM, TYPE]
         """
         return self.out_segments
 
-    def word_level_autocompletion(
-            self,
-            src,
-            left_context,
-            right_context,
-            typed_seq,
-            src_feats={},
-            tgt=None,
-            batch_size=1,
-            batch_type="sents",
-            attn_debug=False,
-            align_debug=False,
-            phrase_table="",
-            bpe=None):
-
-        src =  [src if (not bpe or not src) else bpe.process_line(src)]
-        left_context = left_context if (not bpe or not left_context) else bpe.process_line(left_context)
-        right_context = right_context if (not bpe or not right_context) else bpe.process_line(right_context)
-
-
-        finded = False
-        tgt_vocab = self._tgt_vocab.itos
-        for idx, word in enumerate(tgt_vocab):
-            if word.startswith(typed_seq):
-                finded = True
-                break
-        typed_seq = typed_seq if (finded or not bpe) else bpe.process_line(typed_seq)
-
-        segments = []
-        if left_context != '':
-            segments.append([left_context.split(), SegmentType.GENERIC])
-        segments.append([typed_seq.split(), SegmentType.TO_COMPLETE])
-        if right_context != '':
-            segments.append([right_context.split(), SegmentType.GENERIC])
-
-        _, hyp = self.segment_based_inmt(src=src, segment_list=segments)
-        for segment in self.get_segments():
-            if segment[-1] == SegmentType.TO_COMPLETE:
-                subwords = segment[1]
-                if subwords[-1][-2:] == '@@':
-                    subwords = []
-                    for w in hyp[0][0].split()[segment[0]:]:
-                        subwords.append(w)
-                        if w[-2:] != '@@':
-                            break
-                return ' '.join(subwords)
-
-        return ''
 
     def segment_based_inmt(
         self,
@@ -1123,8 +1075,7 @@ class INMTTranslator(Translator):
             #|==============================================================|
             if segment_type == SegmentType.GENERIC:
                 segment_indices = new_segment[0]
-                segment_offset = 1 if segment_comm[0]=='<s>'else 0
-
+                
                 for pos, word in enumerate(segment_comm):
                     try:
                         index_value = tgt_vocab.index(word)
@@ -1174,7 +1125,7 @@ class INMTTranslator(Translator):
                     if index_value == 0:
                         self.phrase_table[pos] = word
                 segment_indices.append(3)
-                self.prefix = torch.tensor([[[i]] for i in segment_indices])
+                self.prefix = torch.tensor([[[i]] for i in segment_indices]).to(self._dev)
 
                 out_segment = [0, len(segment_comm), segment_type]
                 self.out_segments.append(out_segment)
@@ -1381,7 +1332,7 @@ class INMTTranslator(Translator):
 
             # Preparamos una variable para guardar las traducciones y otra para los scores
             forward_hyp_trans = []
-            forward_hyp_score = []
+            forward_hyp_score = [] 
 
             for step in range(max_N):
                 decoder_input = copy_decode_strategy.current_predictions.view(1, -1, 1)
@@ -1398,7 +1349,7 @@ class INMTTranslator(Translator):
                 )
 
                 copy_decode_strategy.advance(log_probs, attn, self.last_word_idx)
-
+                
                 any_finished = copy_decode_strategy.is_finished.any()
                 if any_finished:
                     copy_decode_strategy.update_finished()
@@ -1406,7 +1357,7 @@ class INMTTranslator(Translator):
                         break
 
                 select_indices = copy_decode_strategy.select_indices
-
+                
                 if any_finished:
                     # Reorder states.
                     if isinstance(copy_memory_bank, tuple):
@@ -1506,7 +1457,7 @@ class INMTTranslator(Translator):
                         pos_next_segment = len(best_hyp)
                     new_prefix = best_hyp[:pos_next_segment] + next_segment_comm + [3]
 
-                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
                     if next_segment_phrs:
                         next_segment_phrs = dict([(step + k + pos_next_segment, v) for k, v in next_segment_phrs.items()])
                         self.phrase_table.update(next_segment_phrs)
@@ -1533,11 +1484,11 @@ class INMTTranslator(Translator):
 
                     if next_segment_comm[-1] != [0]:
                         self.last_word_idx[step+1+len(new_prefix)] = next_segment_comm[-1]
-                    else:
-                        new_prefix += [0]
+                    new_prefix += [0]
 
                     new_prefix += [3]
-                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix)
+
+                    decode_strategy.maybe_update_next_target_tokens(step, new_prefix, self._dev)
 
                     if next_segment_phrs:
                         next_segment_phrs = dict([(k+step+pos_next_segment, v) for k, v in next_segment_phrs.items()])

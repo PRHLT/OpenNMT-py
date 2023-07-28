@@ -5,6 +5,7 @@ from onmt.utils.logging import init_logger
 from onmt.translate.translator import build_translator
 
 import onmt.opts as opts
+import sys
 from onmt.utils.parse import ArgumentParser
 from onmt.constants import SegmentType
 
@@ -34,22 +35,43 @@ def generate_segment_list(feedback, correction):
     return segments
 
 
+def get_word_correction_bpe(pos, ref):
+    ref_word = ref[pos]
+    correction = [pos, [ref_word], SegmentType.GENERIC, pos]
+
+    is_bpe_subword = (ref_word[-2:]=='@@')
+    larger_than_reference = (pos+1 >= len(ref))
+    while not larger_than_reference and is_bpe_subword:
+        pos += 1
+        ref_word = ref[pos]
+        correction[1].append(ref_word)
+        is_bpe_subword = (ref_word[-2:]=='@@')
+        larger_than_reference = (pos+1 >= len(ref))
+    return correction
+
+
 def get_correction(character_level, hyp, ref):
-    for n in range(len(ref)):
-        if n >= len(hyp):
-            return ([n, [ref[n][0]], SegmentType.TO_COMPLETE, n] if character_level
-                    else [n, [ref[n]], SegmentType.GENERIC, n])
-        if ref[n] != hyp[n]:
+    for n, ref_word in enumerate(ref): 
+
+        larger_than_reference = (n >= len(hyp))
+        if larger_than_reference:
+            if character_level:
+                return [n, hyp[:n] + [ref_word[0]], SegmentType.TO_COMPLETE, 0]
+            return get_word_correction_bpe(n, ref)
+
+        hyp_and_ref_not_equal = (ref_word != hyp[n])
+        if hyp_and_ref_not_equal:
             if not character_level:
-                return [n, [ref[n]], SegmentType.GENERIC, n]
-            for m in range(len(ref[n])):
-                if m >= len(hyp[n]) or hyp[n][m] != ref[n][m]:
-                    chars = ref[n][:m+1]
+                return get_word_correction_bpe(n, ref)
+
+            for m in range(len(ref_word)):
+                if m >= len(hyp[n]) or hyp[n][m] != ref_word[m]:
+                    chars = ref_word[:m+1]
                     if chars[-1] == '@':
                         chars += '@'
-                        return [n, [chars], SegmentType.GENERIC, n]
-                    return [n, [chars], SegmentType.TO_COMPLETE, n]
-            return [n, [ref[n]], SegmentType.GENERIC, n]
+                        return [n, hyp[:n]+[chars]+[ref[n+1][0]], SegmentType.TO_COMPLETE, 0]
+                    return [n, hyp[:n] + [chars], SegmentType.TO_COMPLETE, 0]
+            return [n, ref, SegmentType.GENERIC, n]
     return ''
 
 
@@ -81,12 +103,33 @@ def correction_segments(feedback, s1, s2, character_level=False):
     return ''
 
 
+def remove_bpe_from_list(sentence):
+    noBPE_sentence = []
+    codes_sentence = {}
+
+    pos = 0
+    while pos < len(sentence):
+        last_token_was_subword = (pos>0 and noBPE_sentence[-1][-2:]=='@@')
+        if last_token_was_subword:
+            noBPE_sentence[-1] = noBPE_sentence[-1][:-2] + sentence[pos]
+            codes_sentence[len(noBPE_sentence)-1][1] = pos
+        else:
+            noBPE_sentence.append(sentence[pos])
+            codes_sentence[len(noBPE_sentence)-1] = [pos, pos]
+        pos += 1
+
+    return noBPE_sentence, codes_sentence
+
+
 def longest_common_substring(s1, s2):
-    m = [[0] * (1 + len(s2)) for _ in range(1 + len(s1))]
+    noBPE_s1, codes_s1 = remove_bpe_from_list(s1)
+    noBPE_s2, codes_s2 = remove_bpe_from_list(s2)
+
+    m = [[0] * (1 + len(noBPE_s2)) for _ in range(1 + len(noBPE_s1))]
     longest, x_longest, y_longest = 0, 0, 0
-    for x in range(1, 1 + len(s1)):
-        for y in range(1, 1 + len(s2)):
-            if s1[x - 1] == s2[y - 1]:
+    for x in range(1, 1 + len(noBPE_s1)):
+        for y in range(1, 1 + len(noBPE_s2)):
+            if noBPE_s1[x - 1] == noBPE_s2[y - 1]:
                 m[x][y] = m[x - 1][y - 1] + 1
                 if m[x][y] > longest:
                     longest = m[x][y]
@@ -94,8 +137,14 @@ def longest_common_substring(s1, s2):
                     y_longest = y
             else:
                 m[x][y] = 0
-    return (s1[x_longest - longest: x_longest], x_longest - longest,
-            y_longest - longest)
+
+
+    s1_longest = 0 if x_longest==0 else codes_s1[x_longest-1][1]+1
+    s2_longest = 0 if y_longest==0 else codes_s2[y_longest-1][1]+1
+    ss_longest = 0 if longest==0 else codes_s1[x_longest-1][1]+1 - codes_s1[x_longest-longest][0]
+
+    return (s1[s1_longest - ss_longest: s1_longest], s1_longest - ss_longest,
+            s2_longest - ss_longest)
 
 
 def get_segments(s1, s2, s1_offset=0, s2_offset=0):
@@ -126,6 +175,10 @@ def merge_segments(feedback, correction, s1, s2):
 
         for segment in feedback[1:]:
             s_pos, s_com, s_typ = segment
+
+            if s_typ == SegmentType.TO_COMPLETE or previous[2] == SegmentType.TO_COMPLETE:
+                previous = segment
+                continue
 
             common_pos = 0
             for i in range(len(s2)):
@@ -266,6 +319,12 @@ def segment_based_simulation(opt):
     total_character_strokes = 0
 
     for n in range(len(srcs)):
+        #if n<264:
+        #    continue
+        #if n>264:
+        #    sys.exit()
+
+
         logger.info("Processing sentence %d." % n)
         src = srcs[n]
         ref = refs[n].decode('utf-8').strip()
@@ -280,8 +339,9 @@ def segment_based_simulation(opt):
             print("Source: {0}".format(src.decode('utf-8').strip()
                                        .replace('@@ ', '')))
             print("Reference: {0}".format(ref.replace('@@ ', '')))
-            print("Initial hypothesis: {0}".format(hyp[0][0]
-                                                   .replace('@@ ', '')))
+            print("Initial hypothesis: {0}".format(hyp[0][0].replace('@@ ', '')))
+            #print("Reference: {0}".format(ref))
+            #print("Initial hypothesis: {0}".format(hyp[0][0]))
             print()
 
         cont = 1
@@ -303,21 +363,13 @@ def segment_based_simulation(opt):
             else:
                 correction = [x for x in feedback if x[2]==SegmentType.TO_COMPLETE]
                 correction = correction[0] if len(correction)>0 else correction
-                feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
-
+                
             # 2) Comprobamos si la corrección ha finalizado
             if correction:
                 # 2.1) Se ha generado la palabra que queriamos
-                if correction[1] == [c_correction]:
+                if hyp[0][0].split()[correction[0]:correction[0]+len(c_correction)] == c_correction:
+                    correction[1] = c_correction
                     correction[2] = SegmentType.GENERIC
-                    added = False
-                    for idx, segment in enumerate(feedback):
-                        if correction[0]<segment[0]:
-                            feedback.insert(idx, correction)
-                            added = True
-                            break
-                    if not added:
-                        feedback.append(correction)
                     mouse_actions_ += 1
                     correction = []
                     c_correction = None
@@ -334,30 +386,55 @@ def segment_based_simulation(opt):
                             break
                         pos_1 = pos_2 + len(segment[1])
 
-            # 3) El usuario añade nuevos segmentos que se hayan podido crear
-            feedback, new_ones = new_segments(feedback, hyp[0][0].split(), ref.split())
-            mouse_actions_ += compute_mouse_actions(new_ones)
+            # 3) El usuario añade nuevos segmentos que se hayan podido crear            
+            if not correction:
+                feedback, new_ones = new_segments(feedback, hyp[0][0].split(), ref.split())
+                mouse_actions_ += compute_mouse_actions(new_ones)
 
             # 4) El usuario fusiona segmentos
-            feedback, times = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
-            mouse_actions_ += times*2
+            if not correction:
+                feedback, times = merge_segments(feedback, correction, hyp[0][0].split(), ref.split())
+                mouse_actions_ += times*2
+            feedback   = [x for x in feedback if x[2]!=SegmentType.TO_COMPLETE]
 
             # 5) El usuario realiza la correccion
             if not correction:
                 correction = correction_segments(feedback, hyp[0][0].split(), ref.split(), opt.character_level)
-                c_correction = ref.split()[correction[3]] if correction != '' else None
+                correction_pos = 0
+                c_correction = None
+
+                some_correction = (correction!='')
+                if some_correction:
+                    ref_list = ref.split()
+                    correction_pos = correction[3]
+                    c_correction = [ ref_list[correction_pos] ]
+                
+                    correction_has_bpe = (c_correction[-1][-2:]=='@@')
+                    while correction_has_bpe:
+                        correction_pos = correction_pos+1
+                        c_correction.append(ref_list[correction_pos])
+                        correction_has_bpe = (correction_pos+1<len(ref_list) and c_correction[-1][-2:]=='@@')
+
             else:
                 pos = correction[0]
-                correction = get_correction(opt.character_level, correction[1], [c_correction])
+                len_previous_correction = len(''.join(correction[1]).replace('@@',''))
+                correction = get_correction(opt.character_level, correction[1], c_correction)
+                len_current_correction = len(''.join(correction[1]).replace('@@',''))
                 correction[0] = pos
+                if len_current_correction > len_previous_correction +1:
+                    mouse_actions_ += 1
+
             word_strokes_ = 1
-            character_strokes_ = 1 if (correction == '' or not correction) else len(correction[1][0])
+            character_strokes_ = 1             
+            some_correction_performed = not (correction=='' or not correction)
+            if some_correction_performed and not opt.character_level:
+                character_strokes_ = len(''.join(correction[1]).replace('@@', ''))
 
             segment_list = generate_segment_list(feedback, correction)
-
             if correction == '':  # End of sentence needed.
                 correction = 'EoS'
                 eos = True
+
             score, hyp = translator.segment_based_inmt(
                 src=[src],
                 segment_list=segment_list
@@ -365,17 +442,14 @@ def segment_based_simulation(opt):
             feedback = translator.get_segments()
 
             if opt.inmt_verbose:
-                print("Segments: {0}".format(' || '.join([' '.join(segment[0]) 
-                                                for segment in segment_list])))
-                #print("Correction: {0}".format(''.join(correction[1])
-                #                               .replace('@@', '')))
-                #print("Reference: {0}".format(ref.replace('@@ ', '')))
-                #print("Hypothesis {1}: {0}"
-                #      .format(hyp[0][0].replace('@@ ', ''), cont))
-                print("Correction: {0}".format(''.join(correction[1]) if correction else ''))
-                print("Reference: {0}".format(ref))
-                print("Hypothesis {1}: {0}"
-                      .format(hyp[0][0], cont))
+                print("Segments: {0}".format(' || '.join([' '.join(segment[0]).replace('@@ ', '') for segment in segment_list])))
+                print("Correction: {0}".format(''.join(correction[1]).replace('@@', '') if isinstance(correction, list) else correction ))
+                print("Reference: {0}".format(ref.replace('@@ ', '')))
+                print("Hypothesis {1}: {0}".format(hyp[0][0].replace('@@ ', ''), cont))
+                #print("Segments: {0}".format(' || '.join([' '.join(segment[0]) for segment in segment_list])))
+                #print("Correction: {0}".format(''.join(correction[1]) if isinstance(correction, list) else correction))
+                #print("Reference: {0}".format(ref))
+                #print("Hypothesis {1}: {0}".format(hyp[0][0], cont))
                 print('~~~~~~~~~~~~~~~~~~')
                 print('Mouse actions: {0}'.format(mouse_actions_))
                 print('Word strokes: {0}'.format(word_strokes_))
@@ -399,6 +473,7 @@ def segment_based_simulation(opt):
 
     compute_metrics(refs, total_mouse_actions,
                     total_word_strokes, total_character_strokes)
+
 
 def get_character_level_corrections_prefix(hyp, ref):
     prefix = []
