@@ -37,3 +37,4 @@ class SegmentType(object):
     GENERIC = 'generic'
     TO_COMPLETE = 'to_complete'
     PREFIX = 'prefix'
+    DIFFERENT = 'different'
